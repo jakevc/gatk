@@ -61,8 +61,15 @@ public final class FindBreakpointEvidenceSparkUnitTest extends GATKBaseTest {
 
     @Test(groups = "sv")
     public void getIntervalsTest() {
+        // Now that thresholds scale with coverage, changing coverage alters thresholds. Re-fix thresholds to match
+        // original test:
+        final FindBreakpointEvidenceSparkArgumentCollection intervals_params =
+                new FindBreakpointEvidenceSparkArgumentCollection();
+        intervals_params.minEvidenceWeightPerCoverage = 15.0 / broadcastMetadata.getValue().getCoverage();
+        intervals_params.minCoherentEvidenceWeightPerCoverage = 7.0 / broadcastMetadata.getValue().getCoverage();
+        // run test as previously:
         final List<SVInterval> actualIntervals =
-                FindBreakpointEvidenceSpark.getIntervalsAndEvidenceTargetLinks(params,broadcastMetadata,
+                FindBreakpointEvidenceSpark.getIntervalsAndEvidenceTargetLinks(intervals_params,broadcastMetadata,
                         broadcastExternalEvidence,header,reads,filter,logger, broadcastRegionsToIgnore)._1();
         Assert.assertEquals(actualIntervals, expectedIntervalList);
     }

@@ -23,6 +23,7 @@ public class SVIntegrationTestDataProvider extends CommandLineProgramTest {
     public static final String TEST_CONTIG_SAM = THIS_TEST_FOLDER + "/inputs/hg19_DEL_contigAssemblies.sam";
     public static final String EXTERNAL_CNV_CALLS = THIS_TEST_FOLDER + "/inputs/hg19_DEL_cnv_calls.vcf";
     public static final String KMER_KILL_LIST = THIS_TEST_FOLDER + "/inputs/dummy.kill.kmers";
+    public static final float TEST_BAM_COVERAGE = 10;
 
 
     // expected outputs
