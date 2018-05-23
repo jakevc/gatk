@@ -19,9 +19,11 @@ public class EvidenceFeatures  implements FVec {
     @Override
     public double fvalue(final int index){return values[index];}
 
+    public double getValue(final int index) {return fvalue(index);}
+
     public int length() {return this.values.length;}
 
-    public void set_value(final int index, final double value){values[index] = value;}
+    public void setValue(final int index, final double value){values[index] = value;}
 
     @VisibleForTesting
     public double[] getValues() {return this.values;}

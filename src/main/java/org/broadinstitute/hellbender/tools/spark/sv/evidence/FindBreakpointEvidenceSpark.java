@@ -20,10 +20,11 @@ import org.broadinstitute.hellbender.engine.FeatureDataSource;
 import org.broadinstitute.hellbender.engine.spark.GATKSparkTool;
 import org.broadinstitute.hellbender.exceptions.GATKException;
 import org.broadinstitute.hellbender.exceptions.UserException;
+import org.broadinstitute.hellbender.tools.spark.sv.StructuralVariationDiscoveryArgumentCollection;
+import org.broadinstitute.hellbender.tools.spark.sv.evidence.IntervalCoverageFinder.CandidateCoverageInterval;
 import org.broadinstitute.hellbender.tools.spark.sv.StructuralVariationDiscoveryArgumentCollection.FindBreakpointEvidenceSparkArgumentCollection;
 import org.broadinstitute.hellbender.tools.spark.sv.evidence.BreakpointEvidence.ExternalEvidence;
 import org.broadinstitute.hellbender.tools.spark.sv.evidence.BreakpointEvidence.ReadEvidence;
-import org.broadinstitute.hellbender.tools.spark.sv.evidence.IntervalCoverageFinder.CandidateCoverageInterval;
 import org.broadinstitute.hellbender.tools.spark.sv.utils.*;
 import org.broadinstitute.hellbender.tools.spark.utils.FlatMapGluer;
 import org.broadinstitute.hellbender.tools.spark.utils.HopscotchUniqueMultiMap;
@@ -1030,7 +1031,7 @@ public final class FindBreakpointEvidenceSpark extends GATKSparkTool {
                             evidenceItrList.add(evidenceItr2);
                             final Iterator<BreakpointEvidence> evidenceItr =
                                     FlatMapGluer.concatIterators(evidenceItrList.iterator());
-                            return BreakpointFilterFactory.getFilter(evidenceItr,readMetadata, params, xChecker);
+                            return getFilter(evidenceItr,readMetadata, params, xChecker);
                         }, true);
 
         filteredEvidenceRDD.cache();
@@ -1061,8 +1062,7 @@ public final class FindBreakpointEvidenceSpark extends GATKSparkTool {
 
         // reapply the density filter (all data collected -- no more worry about partition boundaries).
         final Iterator<BreakpointEvidence> evidenceIterator =
-                BreakpointFilterFactory.getFilter(collectedEvidence.iterator(), broadcastMetadata.value(), params,
-                        new PartitionCrossingChecker() );
+                getFilter(collectedEvidence.iterator(), broadcastMetadata.value(), params, new PartitionCrossingChecker() );
         final List<BreakpointEvidence> allEvidence = new ArrayList<>(collectedEvidence.size());
         while ( evidenceIterator.hasNext() ) {
             allEvidence.add(evidenceIterator.next());
@@ -1102,6 +1102,25 @@ public final class FindBreakpointEvidenceSpark extends GATKSparkTool {
         }
 
         return new Tuple2<>(intervals, evidenceTargetLinks);
+    }
+
+    private static Iterator<BreakpointEvidence> getFilter(
+            final Iterator<BreakpointEvidence> evidenceItr,
+            final ReadMetadata readMetadata,
+            final StructuralVariationDiscoveryArgumentCollection.FindBreakpointEvidenceSparkArgumentCollection params,
+            final PartitionCrossingChecker partitionCrossingChecker
+    ) {
+        switch(params.svEvidenceFilterType) {
+            case DENSITY:
+                return new BreakpointDensityFilter(
+                        evidenceItr, readMetadata, params.minEvidenceWeightPerCoverage,
+                        params.minCoherentEvidenceWeightPerCoverage, partitionCrossingChecker, params.minEvidenceMapQ
+                );
+            case XGBOOST:
+                return new XGBoostEvidenceFilter(evidenceItr, readMetadata, params, partitionCrossingChecker);
+            default:
+                throw new IllegalStateException("Unknown svEvidenceFilterType: " + params.svEvidenceFilterType);
+        }
     }
 
     private static void writeTargetLinks(final Broadcast<ReadMetadata> broadcastMetadata,

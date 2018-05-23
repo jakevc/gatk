@@ -1,6 +1,7 @@
 package org.broadinstitute.hellbender.tools.spark.sv.integration;
 
 import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.hdfs.MiniDFSCluster;
 import org.broadinstitute.hellbender.CommandLineProgramTest;
 import org.broadinstitute.hellbender.utils.io.IOUtils;
 import org.broadinstitute.hellbender.utils.test.ArgumentsBuilder;
@@ -100,32 +101,17 @@ public class FindBreakpointEvidenceSparkIntegrationTest extends CommandLineProgr
             final List<String> argsToBeModified = Arrays.asList( new ArgumentsBuilder().add(params.getCommandLine()).getArgsArray() );
             final Path workingDirectory = MiniClusterUtils.getWorkingDir(cluster);
 
-            int idx = 0;
-
-            idx = argsToBeModified.indexOf("-I");
-            Path path = new Path(workingDirectory, "hdfs.bam");
-            File file = new File(argsToBeModified.get(idx+1));
-            cluster.getFileSystem().copyFromLocalFile(new Path(file.toURI()), path);
-            argsToBeModified.set(idx+1, path.toUri().toString());
-
-            idx = argsToBeModified.indexOf("--kmers-to-ignore");
-            path = new Path(workingDirectory, "dummy.kill.kmers");
-            file = new File(argsToBeModified.get(idx+1));
-            cluster.getFileSystem().copyFromLocalFile(new Path(file.toURI()), path);
-            argsToBeModified.set(idx+1, path.toUri().toString());
+            // copy local data to minicluster file system and update args
+            changeArgCopyFromLocal(argsToBeModified, "-I", new Path(workingDirectory, "hdfs.bam"), cluster);
+            changeArgCopyFromLocal(argsToBeModified, "--kmers-to-ignore", new Path(workingDirectory, "dummy.kill.kmers"), cluster);
 
             // outputs, prefix with hdfs address
-            idx = argsToBeModified.indexOf("-O");
-            path = new Path(workingDirectory, "assemblies.sam");
-            argsToBeModified.set(idx+1, path.toUri().toString());
-
-            idx = argsToBeModified.indexOf("--breakpoint-intervals");
-            path = new Path(workingDirectory, "intervals");
-            argsToBeModified.set(idx+1, path.toUri().toString());
-
-            idx = argsToBeModified.indexOf("--fastq-dir");
-            path = new Path(workingDirectory, "fastq");
-            argsToBeModified.set(idx+1, path.toUri().toString());
+            changeArg(argsToBeModified, "-O",
+                    new Path(workingDirectory, "assemblies.sam").toUri().toString());
+            changeArg(argsToBeModified, "--breakpoint-intervals",
+                    new Path(workingDirectory, "intervals").toUri().toString());
+            changeArg(argsToBeModified, "--fastq-dir",
+                    new Path(workingDirectory, "fastq").toUri().toString());
 
             runCommandLine(argsToBeModified);
 
@@ -140,42 +126,46 @@ public class FindBreakpointEvidenceSparkIntegrationTest extends CommandLineProgr
 
         MiniClusterUtils.runOnIsolatedMiniCluster(cluster -> {
 
-            final List<String> argsToBeModified = Arrays.asList( new ArgumentsBuilder().add(params.getCommandLine()).getArgsArray() );
+            final List<String> argsToBeModified = new ArrayList<>(Arrays.asList( new ArgumentsBuilder().add(params.getCommandLine()).getArgsArray() ));
             final Path workingDirectory = MiniClusterUtils.getWorkingDir(cluster);
 
-            int idx = 0;
-
-            idx = argsToBeModified.indexOf("-I");
-            Path path = new Path(workingDirectory, "hdfs.bam");
-            File file = new File(argsToBeModified.get(idx+1));
-            cluster.getFileSystem().copyFromLocalFile(new Path(file.toURI()), path);
-            argsToBeModified.set(idx+1, path.toUri().toString());
-
-            idx = argsToBeModified.indexOf("--kmers-to-ignore");
-            path = new Path(workingDirectory, "dummy.kill.kmers");
-            file = new File(argsToBeModified.get(idx+1));
-            cluster.getFileSystem().copyFromLocalFile(new Path(file.toURI()), path);
-            argsToBeModified.set(idx+1, path.toUri().toString());
+            // copy local data to minicluster file system and update args
+            changeArgCopyFromLocal(argsToBeModified, "-I", new Path(workingDirectory, "hdfs.bam"), cluster);
+            changeArgCopyFromLocal(argsToBeModified, "--kmers-to-ignore", new Path(workingDirectory, "dummy.kill.kmers"), cluster);
 
             // outputs, prefix with hdfs address
-            idx = argsToBeModified.indexOf("-O");
-            path = new Path(workingDirectory, "assemblies.sam");
-            argsToBeModified.set(idx+1, path.toUri().toString());
+            changeArg(argsToBeModified, "-O",
+                    new Path(workingDirectory, "assemblies.sam").toUri().toString());
+            changeArg(argsToBeModified, "--breakpoint-intervals",
+                    new Path(workingDirectory, "intervals").toUri().toString());
+            changeArg(argsToBeModified, "--fastq-dir",
+                    new Path(workingDirectory, "fastq").toUri().toString());
 
-            idx = argsToBeModified.indexOf("--breakpoint-intervals");
-            path = new Path(workingDirectory, "intervals");
-            argsToBeModified.set(idx+1, path.toUri().toString());
-
-            idx = argsToBeModified.indexOf("--fastq-dir");
-            path = new Path(workingDirectory, "fastq");
-            argsToBeModified.set(idx+1, path.toUri().toString());
-
-            idx = argsToBeModified.indexOf("--sv-evidence-filter-type");
-            argsToBeModified.set(idx+1, "XGBOOST");
-
+            // use xgboost classifier
+            changeArg(argsToBeModified, "--sv-evidence-filter-type", "XGBOOST");
+            addArg(argsToBeModified, "--sv-genome-gaps-file", SVIntegrationTestDataProvider.TEST_GENOME_GAPS_FILE);
+            addArg(argsToBeModified, "--sv-genome-umap-s100-file", SVIntegrationTestDataProvider.TEST_GENOME_UMAP100_FILE);
 
             new IntegrationTestSpec(String.join(" ", argsToBeModified), SVIntegrationTestDataProvider.dummyExpectedFileNames)
                     .executeTest("testFindBreakpointEvidenceSparkRunnableXGBoostMiniCluster-", this);
         });
+    }
+
+    static private void changeArg(final List<String> argsToBeModified, final String arg, final String newVal) {
+        final int idx = argsToBeModified.indexOf(arg);
+        argsToBeModified.set(idx + 1, newVal);
+    }
+
+    static private void changeArgCopyFromLocal(final List<String> argsToBeModified, final String arg, final Path newPath,
+                                               final MiniDFSCluster cluster) throws Exception {
+        final int idx = argsToBeModified.indexOf(arg);
+        final File file = new File(argsToBeModified.get(idx + 1));
+        cluster.getFileSystem().copyFromLocalFile(new Path(file.toURI()), newPath);
+        argsToBeModified.set(idx + 1, newPath.toString());
+    }
+
+    static private void addArg(final List<String> argsToBeModified, final String arg, final String newVal) {
+        argsToBeModified.add(arg);
+        argsToBeModified.add(newVal);
     }
 }

@@ -6,49 +6,63 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import htsjdk.samtools.SAMFileHeader;
 import htsjdk.samtools.SAMReadGroupRecord;
-import htsjdk.samtools.SAMSequenceDictionary;
-import htsjdk.samtools.SAMSequenceRecord;
 import org.apache.spark.api.java.JavaDoubleRDD;
 import org.apache.spark.api.java.JavaRDD;
 import org.apache.spark.api.java.JavaSparkContext;
 import org.broadinstitute.hellbender.GATKBaseTest;
 import org.broadinstitute.hellbender.engine.spark.SparkContextFactory;
 import org.broadinstitute.hellbender.exceptions.GATKException;
-import org.broadinstitute.hellbender.tools.spark.sv.StructuralVariationDiscoveryArgumentCollection;
+import org.broadinstitute.hellbender.tools.spark.sv.discovery.inference.CpxSVInferenceTestUtils;
+import org.broadinstitute.hellbender.tools.spark.sv.utils.SVInterval;
+import org.broadinstitute.hellbender.tools.spark.sv.utils.StrandedInterval;
 import org.broadinstitute.hellbender.tools.spark.utils.IntHistogram;
-import org.testng.AssertJUnit;
+import org.broadinstitute.hellbender.utils.Utils;
+import org.testng.Assert;
 import org.testng.annotations.Test;
+import org.broadinstitute.hellbender.tools.spark.sv.StructuralVariationDiscoveryArgumentCollection.FindBreakpointEvidenceSparkArgumentCollection;
+
 
 import java.io.*;
 import java.util.*;
 import java.util.stream.Collectors;
 
+import static org.broadinstitute.hellbender.utils.Utils.validateArg;
+
 public class XGBoostEvidenceFilterUnitTest extends GATKBaseTest {
-    private static final String testAccuracyDataJsonFile = publicTestDir + "sv_classifier_test_data.json";
+    private static final String SV_EVIDENCE_TEST_DIR = toolsTestDir + "spark/sv/evidence/FindBreakpointEvidenceSpark/";
+    private static final String testAccuracyDataJsonFile = SV_EVIDENCE_TEST_DIR + "sv_classifier_test_data.json";
     private static final String classifierModelFile = "/large/sv_evidence_classifier.bin";
-    private static final String resourceClassifierModelFile = "gatk-resources::" + classifierModelFile;
     private static final String localClassifierModelFile
             = new File(publicMainResourcesDir, classifierModelFile).getAbsolutePath();
-    private static final String testFeaturesJsonFile = publicTestDir + "sv_features_test_data.json";
-    private static final double probabilityTol = 2.0e-4;
-    private static final double featuresTol = 1.0e-6;
+    private static final String testFeaturesJsonFile = SV_EVIDENCE_TEST_DIR + "sv_features_test_data.json";
+    private static final double probabilityTol = 2.0e-3;
+    private static final double featuresTol = 1.0e-5;
+    private static final String SV_GENOME_UMAP_S100_FILE = SV_EVIDENCE_TEST_DIR + "hg38_umap_s100.bed.gz";
+    private static final String SV_GENOME_GAPS_FILE = SV_EVIDENCE_TEST_DIR + "hg38_gaps.bed.gz";
 
-    private final ClassifierAccuracyData classifierAccuracyData = new ClassifierAccuracyData(testAccuracyDataJsonFile);
-    private final double[] predictYProbaSerial = predictProba(
+    private static final ClassifierAccuracyData classifierAccuracyData = new ClassifierAccuracyData(testAccuracyDataJsonFile);
+    private static final double[] predictedProbabilitySerial = predictProbability(
             XGBoostEvidenceFilter.loadPredictor(localClassifierModelFile), classifierAccuracyData.features
     );
     private static final FeaturesTestData featuresTestData = new FeaturesTestData(testFeaturesJsonFile);
 
-    private static final StructuralVariationDiscoveryArgumentCollection.FindBreakpointEvidenceSparkArgumentCollection params
-            = new StructuralVariationDiscoveryArgumentCollection.FindBreakpointEvidenceSparkArgumentCollection();
+    private static final FindBreakpointEvidenceSparkArgumentCollection params = initParams();
 
     private static final SAMFileHeader artificialSamHeader = initSAMFileHeader();
     private static final String readGroupName = "Pond-Testing";
     private static final String DEFAULT_SAMPLE_NAME = "SampleX";
-    public static final ReadMetadata readMetadata = initMetadata();
+    private static final ReadMetadata readMetadata = initMetadata();
     private static final PartitionCrossingChecker emptyCrossingChecker = new PartitionCrossingChecker();
-    private final List<BreakpointEvidence> evidenceList = Arrays.stream(featuresTestData.stringReps)
-            .map(strRep -> BreakpointEvidence.fromStringRep(strRep, readMetadata)).collect(Collectors.toList());
+    private static final BreakpointEvidenceFactory breakpointEvidenceFactory = new BreakpointEvidenceFactory(readMetadata);
+    private static final List<BreakpointEvidence> evidenceList = Arrays.stream(featuresTestData.stringReps)
+            .map(breakpointEvidenceFactory::fromStringRep).collect(Collectors.toList());
+
+    private static FindBreakpointEvidenceSparkArgumentCollection initParams() {
+        final FindBreakpointEvidenceSparkArgumentCollection params = new FindBreakpointEvidenceSparkArgumentCollection();
+        params.svGenomeUmapS100File = SV_GENOME_UMAP_S100_FILE;
+        params.svGenomeGapsFile = SV_GENOME_GAPS_FILE;
+        return params;
+    }
 
     private static SAMFileHeader initSAMFileHeader() {
         final SAMFileHeader samHeader = createArtificialSamHeader();
@@ -60,63 +74,11 @@ public class XGBoostEvidenceFilterUnitTest extends GATKBaseTest {
 
     /**
      * Create synthetic SAM Header comptible with genome tracts (e.g. has all the primary contigs)
-     * Use genome gaps file to enforce this.
      */
     public static SAMFileHeader createArtificialSamHeader() {
-        Comparator<String> contigComparator = new Comparator<String>() {
-            @Override public int compare(String s1, String s2) {
-                return getKey(s1).compareTo(getKey(s2));
-            }
-
-            String getKey(final String contig) {
-                try {
-                    final int contigNum = Integer.parseInt(contig.substring(3));
-                    return "chr" + (contigNum < 10 ? "0" + contigNum : contigNum);
-                } catch(NumberFormatException e) {
-                    if(contig.equals("chrX") || contig.equals("chrY")) {
-                        return contig;
-                    } else {
-                        return "zzz" + contig;
-                    }
-                }
-            }
-        };
-
-        SortedMap<String,Integer> contigLengthMap = new TreeMap<>(contigComparator);
-        final String svGenomeGapsFile = params.svGenomeGapsFile;
-        int lineNumber = -1;
-        try(final InputStream inputStream = XGBoostEvidenceFilter.getInputStream(svGenomeGapsFile)) {
-            final BufferedReader reader = new BufferedReader(new InputStreamReader(inputStream));
-            String line;
-            while((line = reader.readLine()) != null) {
-                ++lineNumber;
-                if(line.startsWith("#")) {
-                    continue;
-                }
-                final String[] splitLine = line.split("\t");
-                final String contig = splitLine[0];
-                final Integer end = Integer.parseInt(splitLine[2]) + 1;
-                if(!contigLengthMap.containsKey(contig) || contigLengthMap.get(contig) < end) {
-                    contigLengthMap.put(contig, end);
-                }
-            }
-        } catch(IOException e) {
-            throw new GATKException("Unable to read genome gaps file \"" + svGenomeGapsFile + "\" line " + lineNumber
-                                    + ": " + e.getMessage());
-        }
-
-        SAMFileHeader header = new SAMFileHeader();
+        final SAMFileHeader header = new SAMFileHeader();
         header.setSortOrder(SAMFileHeader.SortOrder.coordinate);
-        SAMSequenceDictionary dict = new SAMSequenceDictionary();
-        // make up some sequence records
-        for (SortedMap.Entry<String,Integer> contigEntry : contigLengthMap.entrySet()) {
-            final String contig = contigEntry.getKey();
-            final int chromosomeSize = contigEntry.getValue();
-            SAMSequenceRecord rec = new SAMSequenceRecord(contig, chromosomeSize);
-            rec.setSequenceLength(chromosomeSize);
-            dict.addSequence(rec);
-        }
-        header.setSequenceDictionary(dict);
+        header.setSequenceDictionary(CpxSVInferenceTestUtils.bareBoneHg38SAMSeqDict);
         return header;
     }
 
@@ -132,8 +94,8 @@ public class XGBoostEvidenceFilterUnitTest extends GATKBaseTest {
     }
 
     private static IntHistogram.CDF cumulativeCountsToCDF(final long[] cumulativeCounts) {
-        final float[] cdfFractions = new float[cumulativeCounts.length];
         final long totalObservations = cumulativeCounts[cumulativeCounts.length - 1];
+        final float[] cdfFractions = new float[cumulativeCounts.length];
         for(int index = 0; index < cdfFractions.length; ++index) {
             cdfFractions[index] = cumulativeCounts[index] / (float)totalObservations;
         }
@@ -143,8 +105,8 @@ public class XGBoostEvidenceFilterUnitTest extends GATKBaseTest {
     @Test(groups = "sv")
     protected void testLocalXGBoostClassifierAccuracy() {
         // check accuracy: predictions are same as classifierAccuracyData up to tolerance
-        AssertJUnit.assertArrayEquals("Probabilities predicted by classifier do not match saved correct answers",
-                predictYProbaSerial, classifierAccuracyData.yProba, probabilityTol);
+        assertArrayEquals(predictedProbabilitySerial, classifierAccuracyData.probability, probabilityTol, "Probabilities predicted by classifier do not match saved correct answers"
+        );
     }
 
     @Test(groups = "sv")
@@ -155,24 +117,24 @@ public class XGBoostEvidenceFilterUnitTest extends GATKBaseTest {
         // parallelize classifierAccuracyData to RDD
         JavaRDD<FVec> testFeaturesRdd = ctx.parallelize(Arrays.asList(classifierAccuracyData.features));
         // predict in parallel
-        JavaDoubleRDD predictYProbaRdd
+        JavaDoubleRDD predictedProbabilityRdd
                 = testFeaturesRdd.mapToDouble(f -> localPredictor.predictSingle(f, false, 0));
         // pull back to local array
-        final double[] predictYProbaSpark = predictYProbaRdd.collect()
+        final double[] predictedProbabilitySpark = predictedProbabilityRdd.collect()
                 .stream().mapToDouble(Double::doubleValue).toArray();
         // check probabilities from spark are identical to serial
-        AssertJUnit.assertArrayEquals("Probabilities predicted in spark context differ from serial",
-                predictYProbaSpark, predictYProbaSerial, 0.0);
+        assertArrayEquals(predictedProbabilitySpark, predictedProbabilitySerial, 0.0, "Probabilities predicted in spark context differ from serial"
+        );
     }
 
     @Test(groups = "sv")
     protected void testResourceXGBoostClassifier() {
         // load classifier from resource
-        final Predictor resourcePredictor = XGBoostEvidenceFilter.loadPredictor(resourceClassifierModelFile);
-        final double[] resourceYProba = predictProba(resourcePredictor, classifierAccuracyData.features);
+        final Predictor resourcePredictor = XGBoostEvidenceFilter.loadPredictor(null);
+        final double[] predictedProbabilityResource = predictProbability(resourcePredictor, classifierAccuracyData.features);
         // check that predictions from resource are identical to local
-        AssertJUnit.assertArrayEquals("Predictions via loading predictor from resource is not identical to local file",
-                resourceYProba, predictYProbaSerial, 0.0);
+        assertArrayEquals(predictedProbabilityResource, predictedProbabilitySerial, 0.0, "Predictions via loading predictor from resource is not identical to local file"
+        );
     }
 
     @Test(groups = "sv")
@@ -185,13 +147,13 @@ public class XGBoostEvidenceFilterUnitTest extends GATKBaseTest {
             final String stringRep = featuresTestData.stringReps[ind];
             final EvidenceFeatures fVec = featuresTestData.features[ind];
 
-            final BreakpointEvidence convertedEvidence = BreakpointEvidence.fromStringRep(stringRep, readMetadata);
+            final BreakpointEvidence convertedEvidence = breakpointEvidenceFactory.fromStringRep(stringRep);
             final String convertedRep = convertedEvidence.stringRep(readMetadata, params.minEvidenceMapQ);
-            AssertJUnit.assertEquals("BreakpointEvidence.fromStringRep does not invert BreakpointEvidence.stringRep",
-                    stringRep.trim(), convertedRep.trim());
+            Assert.assertEquals(stringRep.trim(), convertedRep.trim(),
+                    "BreakpointEvidenceFactory.fromStringRep does not invert BreakpointEvidence.stringRep");
             final EvidenceFeatures calcFVec = evidenceFilter.getFeatures(evidence);
-            AssertJUnit.assertArrayEquals("Features calculated by XGBoostEvidenceFilter don't match expected features",
-                    fVec.getValues(), calcFVec.getValues(), featuresTol);
+            assertArrayEquals(fVec.getValues(), calcFVec.getValues(), featuresTol, "Features calculated by XGBoostEvidenceFilter don't match expected features"
+            );
         }
     }
 
@@ -200,8 +162,8 @@ public class XGBoostEvidenceFilterUnitTest extends GATKBaseTest {
         final List<BreakpointEvidence> expectedPassed = new ArrayList<>();
         int index = 0;
         for(final BreakpointEvidence evidence : evidenceList) {
-            final double proba = featuresTestData.proba[index];
-            if(proba > params.svEvidenceFilterThresholdProbability) {
+            final double probability = featuresTestData.probability[index];
+            if(probability > params.svEvidenceFilterThresholdProbability) {
                 expectedPassed.add(evidence);
             }
             index += 1;
@@ -213,17 +175,23 @@ public class XGBoostEvidenceFilterUnitTest extends GATKBaseTest {
         final List<BreakpointEvidence> passedEvidence = new ArrayList<>();
         evidenceFilter.forEachRemaining(passedEvidence::add);
 
-        AssertJUnit.assertEquals("Evidence passed by XGBoostEvidenceFilter not the same as expected",
-                expectedPassed, passedEvidence);
+        Assert.assertEquals(expectedPassed, passedEvidence,
+                "Evidence passed by XGBoostEvidenceFilter not the same as expected");
     }
 
-    private static double[] predictProba(final Predictor predictor, final FVec[] testFeatures) {
-        final int numData = testFeatures.length;
-        final double[] yProba = new double[numData];
-        for(int rowIndex = 0; rowIndex < numData; ++rowIndex) {
-            yProba[rowIndex] = predictor.predictSingle(testFeatures[rowIndex], false,0);
+    private static void assertArrayEquals(final double[] expecteds, final double[] actuals, final double tol,
+                                          final String message) {
+        Assert.assertEquals(expecteds.length, actuals.length, "Lengths not equal: " + message);
+        for(int index = 0; index < expecteds.length; ++index) {
+            Assert.assertEquals(expecteds[index], actuals[index], tol, "at index=" + index + ": " + message);
         }
-        return yProba;
+    }
+
+    private static double[] predictProbability(final Predictor predictor, final FVec[] testFeatures) {
+
+        return Arrays.stream(testFeatures).mapToDouble(
+                features -> predictor.predictSingle(features, false, 0)
+        ).toArray();
     }
 
     static class JsonMatrixLoader {
@@ -296,7 +264,7 @@ public class XGBoostEvidenceFilterUnitTest extends GATKBaseTest {
                 int rowIndex = 0;
                 for(final JsonNode valueNode: columnArrayNode) {
                     final EvidenceFeatures fVec = matrix[rowIndex];
-                    fVec.set_value(columnIndex, valueNode.asDouble());
+                    fVec.setValue(columnIndex, valueNode.asDouble());
                     ++rowIndex;
                 }
                 ++columnIndex;
@@ -383,15 +351,179 @@ public class XGBoostEvidenceFilterUnitTest extends GATKBaseTest {
         }
     }
 
+    private static class BreakpointEvidenceFactory {
+        final ReadMetadata readMetadata;
+
+        BreakpointEvidenceFactory(final ReadMetadata readMetadata) {
+            this.readMetadata = readMetadata;
+        }
+
+        /**
+         * Returns BreakpointEvidence constructed from string representation. Used to reconstruct BreakpointEvidence for
+         * unit tests. It is intended for stringRep() to be an inverse of this function, but not the other way around. i.e.
+         *      fromStringRep(strRep, readMetadata).stringRep(readMetadata, minEvidenceMapQ) == strRep
+         * but it may be the case that
+         *      fromStringRep(evidence.stringRep(readMetadata, minEvidenceMapQ), readMetadata) != evidence
+         */
+        BreakpointEvidence fromStringRep(final String strRep) {
+            final String[] words = strRep.split("\t");
+
+            final SVInterval location = locationFromStringRep(words[0]);
+
+            final int weight = Integer.parseInt(words[1]);
+
+            final String evidenceType = words[2];
+            if(evidenceType.equals("TemplateSizeAnomaly")) {
+                final int readCount = Integer.parseInt(words[4]);
+                return new BreakpointEvidence.TemplateSizeAnomaly(location, weight, readCount);
+            } else {
+                final List<StrandedInterval> distalTargets = words[3].isEmpty() ? new ArrayList<>()
+                        : Arrays.stream(words[3].split(";")).map(BreakpointEvidenceFactory::strandedLocationFromStringRep)
+                        .collect(Collectors.toList());
+                validateArg(distalTargets.size() <= 1, "BreakpointEvidence must have 0 or 1 distal targets");
+                final String[] templateParts = words[4].split("/");
+                final String templateName = templateParts[0];
+                final TemplateFragmentOrdinal fragmentOrdinal;
+                if(templateParts.length <= 1) {
+                    fragmentOrdinal = TemplateFragmentOrdinal.UNPAIRED;
+                } else switch (templateParts[1]) {
+                    case "0":
+                        fragmentOrdinal = TemplateFragmentOrdinal.PAIRED_INTERIOR;
+                        break;
+                    case "1":
+                        fragmentOrdinal = TemplateFragmentOrdinal.PAIRED_FIRST;
+                        break;
+                    case "2":
+                        fragmentOrdinal = TemplateFragmentOrdinal.PAIRED_SECOND;
+                        break;
+                    case "?":
+                        fragmentOrdinal = TemplateFragmentOrdinal.PAIRED_UNKNOWN;
+                        break;
+                    default:
+                        throw new IllegalArgumentException("Unknown Template Fragment Ordinal: /" + templateParts[1]);
+                }
+                final boolean forwardStrand = words[5].equals("1");
+                final int templateSize = Integer.parseInt(words[6]);
+                final String cigarString = words[7];
+                final int mappingQuality = Integer.parseInt(words[8]);
+                final String readGroup = "Pond-Testing"; // for now, just fake this, only for testing.
+                final boolean validated = false;
+
+
+                final SVInterval target;
+                final boolean targetForwardStrand;
+                final int targetQuality;
+                switch(distalTargets.size()) {
+                    case 0:
+                        target = new SVInterval(0, 0, 0);
+                        targetForwardStrand = false;
+                        targetQuality = -1;
+                        break;
+                    case 1:
+                        target = distalTargets.get(0).getInterval();
+                        targetForwardStrand = distalTargets.get(0).getStrand();
+                        targetQuality = Integer.MAX_VALUE;
+                        break;
+                    default:
+                        throw new IllegalArgumentException("BreakpointEvidence must have <= 1 distal target");
+                }
+
+                switch(evidenceType) {
+                    case "SplitRead":
+                        // NOTE: can't identically reconstruct original values, but can make self-consistent values that reproduce
+                        // the known distal targets. Make plausible cigar strings, primaryAlignmentClippedAtStart and
+                        // primaryAlignmentForwardStrand that are compatible with dumped distal targets.
+                        final String tagSA = distalTargets.isEmpty() ? null : distalTargets.stream().map(this::distalTargetToTagSA).collect(Collectors.joining());
+                        return new BreakpointEvidence.SplitRead(location, weight, templateName, fragmentOrdinal, validated,
+                                forwardStrand, cigarString, mappingQuality, templateSize, readGroup,
+                                forwardStrand, forwardStrand, tagSA);
+
+                    case "LargeIndel":
+                        Utils.validateArg(distalTargets.isEmpty(), "LargeIndel should have no distal targets");
+                        return new BreakpointEvidence.LargeIndel(location, weight, templateName, fragmentOrdinal, validated,
+                                forwardStrand, cigarString, mappingQuality, templateSize, readGroup);
+
+                    case "MateUnmapped":
+                        Utils.validateArg(distalTargets.isEmpty(), "MateUnmapped should have no distal targets");
+                        return new BreakpointEvidence.MateUnmapped(location, weight, templateName, fragmentOrdinal, validated,
+                                forwardStrand, cigarString, mappingQuality, templateSize, readGroup);
+
+                    case "InterContigPair":
+                        return new BreakpointEvidence.InterContigPair(
+                                location, weight, templateName, fragmentOrdinal, validated, forwardStrand, cigarString,
+                                mappingQuality, templateSize, readGroup, target, targetForwardStrand, targetQuality
+                        );
+
+                    case "OutiesPair":
+                        return new BreakpointEvidence.OutiesPair(
+                                location, weight, templateName, fragmentOrdinal, validated, forwardStrand, cigarString,
+                                mappingQuality, templateSize, readGroup, target, targetForwardStrand, targetQuality
+                        );
+
+                    case "SameStrandPair":
+                        return new BreakpointEvidence.SameStrandPair(
+                                location, weight, templateName, fragmentOrdinal, validated, forwardStrand, cigarString,
+                                mappingQuality, templateSize, readGroup, target, targetForwardStrand, targetQuality
+                        );
+
+                    case "WeirdTemplateSize":
+                        return new BreakpointEvidence.WeirdTemplateSize(
+                                location, weight, templateName, fragmentOrdinal, validated, forwardStrand, cigarString,
+                                mappingQuality, templateSize, readGroup, target, targetForwardStrand, targetQuality
+                        );
+                    default:
+                        throw new IllegalArgumentException("Unknown BreakpointEvidence type: " + evidenceType);
+                }
+            }
+        }
+
+        private String distalTargetToTagSA(final StrandedInterval distalTarget) {
+            final String contigName = readMetadata.getContigName(distalTarget.getInterval().getContig());
+            final boolean isForwardStrand = distalTarget.getStrand();
+            final int referenceLength = distalTarget.getInterval().getLength();
+            final int pos = distalTarget.getInterval().getEnd() - 1 - BreakpointEvidence.SplitRead.UNCERTAINTY;
+            final int start = isForwardStrand ? pos - referenceLength: pos;
+            final int clipLength = readMetadata.getAvgReadLen() - referenceLength;
+            final String cigar = referenceLength >= readMetadata.getAvgReadLen() ? referenceLength + "M"
+                    : (isForwardStrand ? referenceLength + "M" + clipLength + "S"
+                    : clipLength + "S" + referenceLength + "M");
+            final int mapq = Integer.MAX_VALUE;
+            final int mismatches = 0;
+            final String[] tagParts = new String[] {contigName, String.valueOf(start), isForwardStrand ? "+": "-",
+                    cigar, String.valueOf(mapq), String.valueOf(mismatches)};
+            return String.join(",", tagParts) + ";";
+        }
+
+        private static SVInterval locationFromStringRep(final String locationStr) {
+            final String[] locationParts = locationStr.split("[\\[\\]:]");
+            validateArg(locationParts.length >= 2, "Could not parse SVInterval from string");
+            final int contig = Integer.parseInt(locationParts[0]);
+            final int start = Integer.parseInt(locationParts[1]);
+            final int end = Integer.parseInt(locationParts[2]);
+            return new SVInterval(contig, start, end);
+        }
+
+        private static StrandedInterval strandedLocationFromStringRep(final String locationStr) {
+            final String[] locationParts = locationStr.split("[\\[\\]:]");
+            validateArg(locationParts.length == 4, "Could not parse StrandedInterval from string");
+            final int contig = Integer.parseInt(locationParts[0]);
+            final int start = Integer.parseInt(locationParts[1]);
+            final int end = Integer.parseInt(locationParts[2]);
+            final boolean strand = locationParts[3].equals("1");
+            return new StrandedInterval(new SVInterval(contig, start, end), strand);
+        }
+
+    }
+
     private static class ClassifierAccuracyData extends JsonMatrixLoader {
         final EvidenceFeatures[] features;
-        final double[] yProba;
+        final double[] probability;
 
         ClassifierAccuracyData(final String jsonFileName) {
             try(final InputStream inputStream = new FileInputStream(jsonFileName)) {
                 final JsonNode testDataNode = new ObjectMapper().readTree(inputStream);
                 features = getFVecArrayFromJsonNode(testDataNode.get("features"));
-                yProba = getDoubleArrayFromJsonNode(testDataNode.get("proba"));
+                probability = getDoubleArrayFromJsonNode(testDataNode.get("proba"));
             } catch(Exception e) {
                 throw new GATKException(
                         "Unable to load classifier test data from " + jsonFileName + ": " + e.getMessage()
@@ -403,7 +535,7 @@ public class XGBoostEvidenceFilterUnitTest extends GATKBaseTest {
     private static class FeaturesTestData extends JsonMatrixLoader {
         final EvidenceFeatures[] features;
         final String[] stringReps;
-        final double[] proba;
+        final double[] probability;
         final float coverage;
         final long[] template_size_cumulative_counts;
 
@@ -412,7 +544,7 @@ public class XGBoostEvidenceFilterUnitTest extends GATKBaseTest {
                 final JsonNode testDataNode = new ObjectMapper().readTree(inputStream);
                 features = getFVecArrayFromJsonNode(testDataNode.get("features"));
                 stringReps = getStringArrayFromJsonNode(testDataNode.get("string_reps"));
-                proba = getDoubleArrayFromJsonNode(testDataNode.get("proba"));
+                probability = getDoubleArrayFromJsonNode(testDataNode.get("proba"));
                 coverage = (float)testDataNode.get("coverage").asDouble();
                 template_size_cumulative_counts = getLongArrayFromJsonNode(
                         testDataNode.get("template_size_cumulative_counts")
@@ -424,4 +556,6 @@ public class XGBoostEvidenceFilterUnitTest extends GATKBaseTest {
             }
         }
     }
+
+
 }
