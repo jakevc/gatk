@@ -9,7 +9,7 @@ import java.util.List;
 
 public class SVIntegrationTestDataProvider extends CommandLineProgramTest {
 
-    public static final String THIS_TEST_FOLDER = getTestDataDir() + "/spark/sv/integration";
+    private static final String THIS_TEST_FOLDER = getTestDataDir() + "/spark/sv/integration";
 
     public static final File reference = new File(b37_reference_20_21);
     public static final File reference_2bit = new File(b37_2bit_reference_20_21);
@@ -18,7 +18,7 @@ public class SVIntegrationTestDataProvider extends CommandLineProgramTest {
     public static final String ALIGNER_INDEX_IMG = largeFileTestDir + "human_g1k_v37.20.21.fasta.img";
 
     // inputs to tests
-    public static final String LARGE_RESOURCES_FOLDER = publicTestDir + "large/";
+    private static final String LARGE_RESOURCES_FOLDER = publicTestDir + "large/";
     public static final String TEST_BAM = LARGE_RESOURCES_FOLDER + "SVIntegrationTest.bam";
     public static final String TEST_GENOME_GAPS_FILE = LARGE_RESOURCES_FOLDER + "SVIntegrationTest_hg19_gaps.bed.gz";
     public static final String TEST_GENOME_UMAP100_FILE = LARGE_RESOURCES_FOLDER + "SVIntegrationTest_hg19_umap_s100.bed.gz";
@@ -26,6 +26,9 @@ public class SVIntegrationTestDataProvider extends CommandLineProgramTest {
     public static final String EXTERNAL_CNV_CALLS = THIS_TEST_FOLDER + "/inputs/hg19_DEL_cnv_calls.vcf";
     public static final String KMER_KILL_LIST = THIS_TEST_FOLDER + "/inputs/dummy.kill.kmers";
     public static final float TEST_BAM_COVERAGE = 10;
+    public static final String DENSITY_FILTER = "DENSITY";
+    public static final String CLASSIFIER_FILTER = "XGBOOST";
+    public static final String TEST_CONTIG_SAM_CLASSIFIER = THIS_TEST_FOLDER + "/inputs/hg19_DEL_contigAssemblies_" + CLASSIFIER_FILTER + ".sam";
 
 
     // expected outputs

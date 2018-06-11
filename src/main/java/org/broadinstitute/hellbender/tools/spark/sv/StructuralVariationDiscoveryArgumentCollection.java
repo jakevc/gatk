@@ -61,12 +61,14 @@ public class StructuralVariationDiscoveryArgumentCollection implements Serializa
                 fullName = "high-depth-coverage-factor")
         public int highDepthCoverageFactor = 3;
 
-        @Argument(doc = "Minimum weight of the corroborating read evidence to validate some single piece of evidence.",
-                fullName = "min-evidence-count")
+        @Argument(doc = "Minimum weight of the corroborating read evidence to validate some single piece of evidence, as a ratio of the mean coverage in the BAM. "
+                + "The default value is overlap-count / mean coverage ~ 15 / 42.9 ~ 0.350",
+                fullName = "min-evidence-coverage-ratio")
         public double minEvidenceWeightPerCoverage = TRAINING_SET_OPTIMAL_MIN_OVERLAP / TRAINING_SET_MEAN_COVERAGE;
 
-        @Argument(doc = "Minimum weight of the evidence that shares a distal target locus to validate the evidence.",
-                fullName = "min-coherent-evidence-count")
+        @Argument(doc = "Minimum weight of the evidence that shares a distal target locus to validate the evidence, as a ratio of the mean coverage in the BAM. "
+                + "The default value is coherent-count / mean coverage ~ 7 / 42.9 ~ 0.163",
+                fullName = "min-coherent-evidence-coverage-ratio")
         public double minCoherentEvidenceWeightPerCoverage = TRAINING_SET_OPTIMAL_MIN_COHERENCE / TRAINING_SET_MEAN_COVERAGE;
 
         @Argument(doc = "Minimum number of localizing kmers in a valid interval.", fullName="min-kmers-per-interval")
@@ -139,6 +141,13 @@ public class StructuralVariationDiscoveryArgumentCollection implements Serializa
 
         @Advanced @Argument(doc = "ZDropoff (see Bwa mem manual) for contig alignment.", fullName = "z-dropoff")
         public int zDropoff = 20;
+
+        @Argument(doc = "Allow evidence filter to run without gaps annotation (assume no gaps).", fullName = "run-without-gaps-annotation")
+        public boolean runWithoutGapsAnnotation = false;
+        @Argument(doc = "Allow evidence filter to run without annotation for single-read mappability of 100-mers (assume all mappable).",
+                fullName = "run-without-umap-s100-annotation")
+        public boolean runWithoutUmapS100Annotation = false;
+
 
         // --------- locations ----------
 
@@ -214,6 +223,20 @@ public class StructuralVariationDiscoveryArgumentCollection implements Serializa
                 optional = true)
         public SAMFileHeader.SortOrder assembliesSortOrder = SAMFileHeader.SortOrder.coordinate;
 
+        @Argument(doc = "Path to xgboost classifier model file for evidence filtering",
+                fullName = "sv-evidence-filter-model-file", optional=true)
+        public String svEvidenceFilterModelFile = null;
+
+        @Argument(doc = "Path to single read 100-mer mappability file in the reference genome, used by classifier to score evidence for filtering. "
+                + "To use classifier without specifying mappability file, pass the flag --run-without-umap-s100-annotation",
+                fullName = "sv-genome-umap-s100-file", optional = true)
+        public String svGenomeUmapS100File = null;
+
+        @Argument(doc = "Path to file enumerating gaps in the reference genome, used by classifier to score evidence for filtering. "
+                + "To use classifier without specifying gaps file, pass the flag --run-without-gaps-annotation",
+                fullName = "sv-genome-gaps-file", optional = true)
+        public String svGenomeGapsFile = null;
+
         /**
          * Explicit call this method.
          */
@@ -242,18 +265,9 @@ public class StructuralVariationDiscoveryArgumentCollection implements Serializa
                 throw new UserException("We currently support only coordinate or query name sort order for assembly alignment SAM output. " +
                         "User provided sort order: " + assembliesSortOrder);
         }
-        @Argument(doc = "Path to xgboost classifier model file for evidence filtering",
-                fullName = "sv-evidence-filter-model-file", optional=true)
-        public String svEvidenceFilterModelFile = null;
-
-        @Argument(doc = "Path to single read 100-mer mappability file", fullName = "sv-genome-umap-s100-file", optional = true)
-        public String svGenomeUmapS100File = null;
-
-        @Argument(doc = "Path to file enumerating gaps in the reference genome", fullName = "sv-genome-gaps-file", optional = true)
-        public String svGenomeGapsFile = null;
     }
 
-    public enum SvEvidenceFilterType {DENSITY, XGBOOST;}
+    public enum SvEvidenceFilterType {DENSITY, XGBOOST}
 
     public static class DiscoverVariantsFromContigsAlignmentsSparkArgumentCollection implements Serializable {
         private static final long serialVersionUID = 1L;

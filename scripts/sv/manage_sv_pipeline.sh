@@ -79,13 +79,16 @@ CLUSTER_MAX_LIFE_HOURS=${CLUSTER_MAX_LIFE_HOURS:-4h}
 CLUSTER_MAX_IDLE_MINUTES=${CLUSTER_MAX_IDLE_MINUTES:-60m}
 GATK_SV_TOOL=${GATK_SV_TOOL:-"StructuralVariationDiscoveryPipelineSpark"}
 COPY_FASTQ=${COPY_FASTQ:-"Y"}
+SV_UPDATE_GCLOUD=${SV_UPDATE_GCLOUD:-true}
 
 # update gcloud
 {
-    if [[ "${QUIET}" == "Y" ]]; then
-        gcloud components update --quiet
-    else
-        gcloud components update
+    if [ $SV_UPDATE_GCLOUD = true ]; then
+        if [[ "${QUIET}" == "Y" ]]; then
+            gcloud components update --quiet
+        else
+            gcloud components update
+        fi
     fi
 } || {
     # catch error and continue. This can happen if a package manager is

@@ -9,6 +9,10 @@ if [[ ! -f ${GATK_DIR}/build/libs/gatk-spark.jar ]]; then
     exit 1
 fi
 
+# when debugging minor script changes, it's nice to be able to continue running even if there
+# are uncommitted changes. By default, either ask, or in quiet mode, crash
+SV_CONTINUE_UNTRACKED=${SV_CONTINUE_UNTRACKED:-false}
+
 # sanity 1: check if there's un-committed changes
 # there's the possibility that the jar to be used was built with un-committed changes
 # but tagged with a git hash that is present in multiple branches,
@@ -20,19 +24,24 @@ if [[ ${UNTRACKED_COMMIT} ]]; then
     echo "  either later argument parsing may be messed up, or "
     echo "  misleading result-tracking--GATK jar could have been built with uncommitted changes but is stamped with the latest commit hash"
     if [[ "${QUIET}" == "Y" ]]; then
-        echo "ERROR: Quitting because running with uncommitted changes leads to inconsistent result-tracking"
-        exit 1
+        if [ $SV_CONTINUE_UNTRACKED = true ]; then
+            echo "Continuing because SV_CONTINUE_UNTRACKED set to true"
+        else
+            echo "ERROR: Quitting because running with uncommitted changes leads to inconsistent result-tracking"
+            exit 1
+        fi
+    else
+        read -p "Want to proceed anyway? (yes/no/cancel)" yn
+        case $yn in
+            [Yy]*)  ;;
+            [Nn]*)  exit 1
+                    ;;
+            [Cc]*)  exit 1
+                    ;;
+                *)  echo "Please answer yes, no, or cancel."
+                    ;;
+        esac
     fi
-    read -p "Want to proceed anyway? (yes/no/cancel)" yn
-    case $yn in
-        [Yy]*)  ;;
-        [Nn]*)  exit 1
-                ;;
-        [Cc]*)  exit 1
-                ;;
-            *)  echo "Please answer yes, no, or cancel."
-                ;;
-    esac
 fi
 
 # sanity 2: check if GATK jar was compiled from the current .git hash

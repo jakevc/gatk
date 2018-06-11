@@ -40,6 +40,15 @@ public class XGBoostEvidenceFilterUnitTest extends GATKBaseTest {
     private static final String SV_GENOME_UMAP_S100_FILE = SV_EVIDENCE_TEST_DIR + "hg38_umap_s100.bed.gz";
     private static final String SV_GENOME_GAPS_FILE = SV_EVIDENCE_TEST_DIR + "hg38_gaps.bed.gz";
 
+    private static final String PANDAS_TABLE_NODE = "pandas.DataFrame";
+    private static final String PANDAS_COLUMN_NODE = "pandas.Series";
+    private static final String NUMPY_NODE = "numpy.array";
+    private static final String FEATURES_NODE = "features";
+    private static final String STRING_REPS_NODE = "string_reps";
+    private static final String PROBABILITY_NODE = "proba";
+    private static final String MEAN_GENOME_COVERAGE_NODE = "coverage";
+    private static final String TEMPLATE_SIZE_CUMULATIVE_COUNTS_NODE = "template_size_cumulative_counts";
+
     private static final ClassifierAccuracyData classifierAccuracyData = new ClassifierAccuracyData(testAccuracyDataJsonFile);
     private static final double[] predictedProbabilitySerial = predictProbability(
             XGBoostEvidenceFilter.loadPredictor(localClassifierModelFile), classifierAccuracyData.features
@@ -149,10 +158,10 @@ public class XGBoostEvidenceFilterUnitTest extends GATKBaseTest {
 
             final BreakpointEvidence convertedEvidence = breakpointEvidenceFactory.fromStringRep(stringRep);
             final String convertedRep = convertedEvidence.stringRep(readMetadata, params.minEvidenceMapQ);
-            Assert.assertEquals(stringRep.trim(), convertedRep.trim(),
+            Assert.assertEquals(convertedRep.trim(), stringRep.trim(),
                     "BreakpointEvidenceFactory.fromStringRep does not invert BreakpointEvidence.stringRep");
             final EvidenceFeatures calcFVec = evidenceFilter.getFeatures(evidence);
-            assertArrayEquals(fVec.getValues(), calcFVec.getValues(), featuresTol, "Features calculated by XGBoostEvidenceFilter don't match expected features"
+            assertArrayEquals(calcFVec.getValues(), fVec.getValues(), featuresTol, "Features calculated by XGBoostEvidenceFilter don't match expected features"
             );
         }
     }
@@ -175,15 +184,15 @@ public class XGBoostEvidenceFilterUnitTest extends GATKBaseTest {
         final List<BreakpointEvidence> passedEvidence = new ArrayList<>();
         evidenceFilter.forEachRemaining(passedEvidence::add);
 
-        Assert.assertEquals(expectedPassed, passedEvidence,
+        Assert.assertEquals(passedEvidence, expectedPassed,
                 "Evidence passed by XGBoostEvidenceFilter not the same as expected");
     }
 
-    private static void assertArrayEquals(final double[] expecteds, final double[] actuals, final double tol,
+    private static void assertArrayEquals(final double[] actuals, final double[] expecteds, final double tol,
                                           final String message) {
-        Assert.assertEquals(expecteds.length, actuals.length, "Lengths not equal: " + message);
+        Assert.assertEquals(actuals.length, expecteds.length, "Lengths not equal: " + message);
         for(int index = 0; index < expecteds.length; ++index) {
-            Assert.assertEquals(expecteds[index], actuals[index], tol, "at index=" + index + ": " + message);
+            Assert.assertEquals(actuals[index], expecteds[index], tol, "at index=" + index + ": " + message);
         }
     }
 
@@ -195,26 +204,30 @@ public class XGBoostEvidenceFilterUnitTest extends GATKBaseTest {
     }
 
     static class JsonMatrixLoader {
+
+        private static final String CLASS_NODE = "__class__";
+        private static final String DATA_NODE = "data";
+        private static final String VALUES_NODE = "values";
+        private static final String CODES_NODE = "codes";
+
         static EvidenceFeatures[] getFVecArrayFromJsonNode(final JsonNode matrixNode) {
-            if(!matrixNode.has("__class__")) {
+            if(!matrixNode.has(CLASS_NODE)) {
                 throw new IllegalArgumentException("JSON node does not store python matrix data");
             }
-            String matrixClass = matrixNode.get("__class__").asText();
+            String matrixClass = matrixNode.get(CLASS_NODE).asText();
             switch(matrixClass) {
-                case "pandas.DataFrame":
-                    return getFVecArrayFromPandasJsonNode(matrixNode.get("data"));
-                case "numpy.array":
-                    return getFVecArrayFromNumpyJsonNode(matrixNode.get("data"));
+                case PANDAS_TABLE_NODE:
+                    return getFVecArrayFromPandasJsonNode(matrixNode.get(DATA_NODE));
+                case NUMPY_NODE:
+                    return getFVecArrayFromNumpyJsonNode(matrixNode.get(DATA_NODE));
                 default:
-                    throw new IllegalArgumentException("JSON node has __class__ = " + matrixClass
-                            + "which is not a supported matrix type");
+                    throw new IllegalArgumentException("JSON node has " + CLASS_NODE + " = " + matrixClass
+                            + " which is not a supported matrix type");
             }
         }
 
         private static EvidenceFeatures[] getFVecArrayFromNumpyJsonNode(final JsonNode dataNode) {
-            if(!dataNode.isArray()) {
-                throw new IllegalArgumentException("dataNode does not encode a valid numpy array");
-            }
+            Utils.validateArg(dataNode.isArray(), "dataNode does not encode a valid numpy array");
             final int numRows = dataNode.size();
             final EvidenceFeatures[] matrix = new EvidenceFeatures[numRows];
             if (numRows == 0) {
@@ -225,9 +238,7 @@ public class XGBoostEvidenceFilterUnitTest extends GATKBaseTest {
             for (int row = 1; row < numRows; ++row) {
                 matrix[row] = new EvidenceFeatures(getDoubleArrayFromJsonArrayNode(dataNode.get(row)));
                 final int numRowColumns = matrix[row].length();
-                if (numRowColumns != numColumns) {
-                    throw new IllegalArgumentException("Rows in JSONArray have different lengths.");
-                }
+                Utils.validateArg(numRowColumns == numColumns, "Rows in JSONArray have different lengths.");
             }
             return matrix;
         }
@@ -256,10 +267,8 @@ public class XGBoostEvidenceFilterUnitTest extends GATKBaseTest {
                 // loop over columns
                 final Map.Entry<String, JsonNode> columnEntry = fieldIter.next();
                 final JsonNode columnArrayNode = getColumnArrayNode(columnEntry.getValue());
-                if(columnArrayNode.size() != numRows) {
-                    throw new IllegalArgumentException("field " + columnEntry.getKey() + " has "
-                            + columnArrayNode.size() + " rows (expected " + numRows + ")");
-                }
+                Utils.validateArg(columnArrayNode.size() == numRows,
+                        "field " + columnEntry.getKey() + " has " + columnArrayNode.size() + " rows (expected " + numRows + ")");
                 // for each FVec in matrix, assign feature from this column
                 int rowIndex = 0;
                 for(final JsonNode valueNode: columnArrayNode) {
@@ -273,22 +282,22 @@ public class XGBoostEvidenceFilterUnitTest extends GATKBaseTest {
         }
 
         private static JsonNode getColumnArrayNode(final JsonNode columnNode) {
-            return columnNode.has("values") ? columnNode.get("values") : columnNode.get("codes");
+            return columnNode.has(VALUES_NODE) ? columnNode.get(VALUES_NODE) : columnNode.get(CODES_NODE);
         }
 
         static double[] getDoubleArrayFromJsonNode(final JsonNode vectorNode) {
-            if(!vectorNode.has("__class__")) {
+            if(!vectorNode.has(CLASS_NODE)) {
                 return getDoubleArrayFromJsonArrayNode(vectorNode);
             }
-            final String vectorClass = vectorNode.get("__class__").asText();
+            final String vectorClass = vectorNode.get(CLASS_NODE).asText();
             switch(vectorClass) {
-                case "pandas.Series":
+                case PANDAS_COLUMN_NODE:
                     return getDoubleArrayFromJsonArrayNode(getColumnArrayNode(vectorNode));
-                case "numpy.array":
-                    return getDoubleArrayFromJsonArrayNode(vectorNode.get("data"));
+                case NUMPY_NODE:
+                    return getDoubleArrayFromJsonArrayNode(vectorNode.get(DATA_NODE));
                 default:
-                    throw new IllegalArgumentException("JSON node has __class__ = " + vectorClass
-                            + "which is not a supported matrix type");
+                    throw new IllegalArgumentException("JSON node has " + CLASS_NODE + " = " + vectorClass
+                            + "which is not a supported vector type");
             }
         }
 
@@ -307,18 +316,18 @@ public class XGBoostEvidenceFilterUnitTest extends GATKBaseTest {
         }
 
         static long[] getLongArrayFromJsonNode(final JsonNode vectorNode) {
-            if(!vectorNode.has("__class__")) {
+            if(!vectorNode.has(CLASS_NODE)) {
                 return getLongArrayFromJsonArrayNode(vectorNode);
             }
-            final String vectorClass = vectorNode.get("__class__").asText();
+            final String vectorClass = vectorNode.get(CLASS_NODE).asText();
             switch(vectorClass) {
-                case "pandas.Series":
+                case PANDAS_COLUMN_NODE:
                     return getLongArrayFromJsonArrayNode(getColumnArrayNode(vectorNode));
-                case "numpy.array":
-                    return getLongArrayFromJsonArrayNode(vectorNode.get("data"));
+                case NUMPY_NODE:
+                    return getLongArrayFromJsonArrayNode(vectorNode.get(DATA_NODE));
                 default:
-                    throw new IllegalArgumentException("JSON node has __class__ = " + vectorClass
-                            + "which is not a supported matrix type");
+                    throw new IllegalArgumentException("JSON node has " + CLASS_NODE + " = " + vectorClass
+                            + "which is not a supported vector type");
             }
         }
 
@@ -352,6 +361,7 @@ public class XGBoostEvidenceFilterUnitTest extends GATKBaseTest {
     }
 
     private static class BreakpointEvidenceFactory {
+        private static final String DEFAULT_POND_NAME = "Pond-Testing";
         final ReadMetadata readMetadata;
 
         BreakpointEvidenceFactory(final ReadMetadata readMetadata) {
@@ -406,7 +416,7 @@ public class XGBoostEvidenceFilterUnitTest extends GATKBaseTest {
                 final int templateSize = Integer.parseInt(words[6]);
                 final String cigarString = words[7];
                 final int mappingQuality = Integer.parseInt(words[8]);
-                final String readGroup = "Pond-Testing"; // for now, just fake this, only for testing.
+                final String readGroup = DEFAULT_POND_NAME; // for now, just fake this, only for testing.
                 final boolean validated = false;
 
 
@@ -522,8 +532,8 @@ public class XGBoostEvidenceFilterUnitTest extends GATKBaseTest {
         ClassifierAccuracyData(final String jsonFileName) {
             try(final InputStream inputStream = new FileInputStream(jsonFileName)) {
                 final JsonNode testDataNode = new ObjectMapper().readTree(inputStream);
-                features = getFVecArrayFromJsonNode(testDataNode.get("features"));
-                probability = getDoubleArrayFromJsonNode(testDataNode.get("proba"));
+                features = getFVecArrayFromJsonNode(testDataNode.get(FEATURES_NODE));
+                probability = getDoubleArrayFromJsonNode(testDataNode.get(PROBABILITY_NODE));
             } catch(Exception e) {
                 throw new GATKException(
                         "Unable to load classifier test data from " + jsonFileName + ": " + e.getMessage()
@@ -542,12 +552,12 @@ public class XGBoostEvidenceFilterUnitTest extends GATKBaseTest {
         FeaturesTestData(final String jsonFileName) {
             try(final InputStream inputStream = new FileInputStream(jsonFileName)) {
                 final JsonNode testDataNode = new ObjectMapper().readTree(inputStream);
-                features = getFVecArrayFromJsonNode(testDataNode.get("features"));
-                stringReps = getStringArrayFromJsonNode(testDataNode.get("string_reps"));
-                probability = getDoubleArrayFromJsonNode(testDataNode.get("proba"));
-                coverage = (float)testDataNode.get("coverage").asDouble();
+                features = getFVecArrayFromJsonNode(testDataNode.get(FEATURES_NODE));
+                stringReps = getStringArrayFromJsonNode(testDataNode.get(STRING_REPS_NODE));
+                probability = getDoubleArrayFromJsonNode(testDataNode.get(PROBABILITY_NODE));
+                coverage = (float)testDataNode.get(MEAN_GENOME_COVERAGE_NODE).asDouble();
                 template_size_cumulative_counts = getLongArrayFromJsonNode(
-                        testDataNode.get("template_size_cumulative_counts")
+                        testDataNode.get(TEMPLATE_SIZE_CUMULATIVE_COUNTS_NODE)
                 );
             } catch(Exception e) {
                 throw new GATKException(
