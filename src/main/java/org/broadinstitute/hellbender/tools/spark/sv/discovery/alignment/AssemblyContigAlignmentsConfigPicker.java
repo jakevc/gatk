@@ -2,6 +2,7 @@ package org.broadinstitute.hellbender.tools.spark.sv.discovery.alignment;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Iterables;
+import com.google.common.collect.Iterators;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import htsjdk.samtools.SAMFileHeader;
@@ -571,13 +572,30 @@ public class AssemblyContigAlignmentsConfigPicker {
             return bestConfigurations.stream()
                     .map(mappings -> splitGaps(mappings, false))
                     .map(mappings -> removeNonUniqueMappings(mappings, ALIGNMENT_MQ_THRESHOLD, ALIGNMENT_LOW_READ_UNIQUENESS_THRESHOLD))
+                    .filter(mappings ->  {
+                        if (mappings.goodMappings.size() != 2)
+                            return true;
+                        else {
+
+                            if ( simpleChimeraWithStichableAlignments(mappings.goodMappings.get(0), mappings.goodMappings.get(1)) )
+                                return false;
+                            else
+                                return true;
+                        }
+                    })
                     .map(mappings -> createContigGivenClassifiedAlignments(contigName, contigSeq, mappings, true))
                     .sorted(getConfigurationComparator())
                     .iterator();
         } else {
             final GoodAndBadMappings intermediate = splitGaps(bestConfigurations.get(0), false);
             final GoodAndBadMappings result = removeNonUniqueMappings(intermediate, ALIGNMENT_MQ_THRESHOLD, ALIGNMENT_LOW_READ_UNIQUENESS_THRESHOLD);
-            return Collections.singletonList(createContigGivenClassifiedAlignments(contigName, contigSeq, result, false)).iterator();
+            if (result.goodMappings.size() != 2
+                    ||
+                    ! simpleChimeraWithStichableAlignments(result.goodMappings.get(0), result.goodMappings.get(1)))
+                return Collections.singletonList(createContigGivenClassifiedAlignments(contigName, contigSeq, result, false)).iterator();
+            else {
+                return Iterators.emptyIterator();
+            }
         }
     }
 
@@ -903,5 +921,20 @@ public class AssemblyContigAlignmentsConfigPicker {
         }
 
         return maxOverlapMap;
+    }
+
+
+    // see the funny alignment signature described in ticket 4951 on GATK github
+    public static boolean simpleChimeraWithStichableAlignments(final AlignmentInterval intervalOne, final AlignmentInterval intervalTwo) {
+        if (intervalOne.forwardStrand != intervalTwo.forwardStrand)
+            return false;
+        if ( ! intervalOne.referenceSpan.getContig().equals(intervalTwo.referenceSpan.getContig()))
+            return false;
+        if (intervalOne.forwardStrand != (intervalOne.referenceSpan.getStart() < intervalTwo.referenceSpan.getStart()))
+            return false;
+        final int overlapOnContig = AlignmentInterval.overlapOnContig(intervalOne, intervalTwo);
+        if (overlapOnContig == 0)
+            return false;
+        return overlapOnContig == AlignmentInterval.overlapOnRefSpan(intervalOne, intervalTwo);
     }
 }
