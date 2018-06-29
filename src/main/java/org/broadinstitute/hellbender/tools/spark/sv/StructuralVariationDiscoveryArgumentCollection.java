@@ -271,6 +271,10 @@ public class StructuralVariationDiscoveryArgumentCollection implements Serializa
                 fullName = "max-callable-imprecise-deletion-size", optional=true)
         public int maxCallableImpreciseVariantDeletionSize = DEFAULT_MAX_CALLABLE_IMPRECISE_DELETION_SIZE;
 
+        @Advanced
+        @Argument(doc = "Run interpretation tool in debug mode (more information print to screen)", fullName = "debug-mode", optional = true)
+        public Boolean runInDebugMode = false;
+
         /**
          * Explicit call this method.
          */

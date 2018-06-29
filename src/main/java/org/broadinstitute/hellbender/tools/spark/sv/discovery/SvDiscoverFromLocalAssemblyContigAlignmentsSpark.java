@@ -155,7 +155,13 @@ public final class SvDiscoverFromLocalAssemblyContigAlignmentsSpark extends GATK
         final AssemblyContigsClassifiedByAlignmentSignatures contigsByPossibleRawTypes =
                 preprocess(svDiscoveryInputMetaData, assemblyRawAlignments);
 
-        dispatchJobs(ctx, contigsByPossibleRawTypes, svDiscoveryInputMetaData, assemblyRawAlignments, writeSAMFiles);
+        final List<VariantContext> variants =
+                dispatchJobs(ctx, contigsByPossibleRawTypes, svDiscoveryInputMetaData, assemblyRawAlignments, writeSAMFiles);
+
+        final String out = outputPrefixWithSampleName + "merged_simple.vcf";
+        SVVCFWriter.writeVCF(variants, out,
+                svDiscoveryInputMetaData.getReferenceData().getReferenceSequenceDictionaryBroadcast().getValue(),
+                svDiscoveryInputMetaData.getToolLogger());
     }
 
 
@@ -272,44 +278,88 @@ public final class SvDiscoverFromLocalAssemblyContigAlignmentsSpark extends GATK
      * {@link AssemblyContigWithFineTunedAlignments.AlignmentSignatureBasicType#UNKNOWN}
      * currently DO NOT generate any VCF yet.
      */
-    public static void dispatchJobs(final JavaSparkContext ctx,
-                                    final AssemblyContigsClassifiedByAlignmentSignatures contigsByPossibleRawTypes,
-                                    final SvDiscoveryInputMetaData svDiscoveryInputMetaData,
-                                    final JavaRDD<GATKRead> assemblyRawAlignments,
-                                    final boolean writeSAMFiles) {
+    public static List<VariantContext> dispatchJobs(final JavaSparkContext ctx,
+                                                    final AssemblyContigsClassifiedByAlignmentSignatures contigsByPossibleRawTypes,
+                                                    final SvDiscoveryInputMetaData svDiscoveryInputMetaData,
+                                                    final JavaRDD<GATKRead> assemblyRawAlignments,
+                                                    final boolean writeSAMFiles) {
 
         final String outputPrefixWithSampleName = svDiscoveryInputMetaData.getOutputPath();
 
-        // TODO: 1/10/18 bring back read annotation, see ticket 4228
+        final List<VariantContext> simpleChimeraVariants =
+                extractSimpleVariants(contigsByPossibleRawTypes.simple, svDiscoveryInputMetaData, outputPrefixWithSampleName);
+        contigsByPossibleRawTypes.simple.unpersist(false);
 
-        final List<VariantContext> simpleVariants =
-                SimpleNovelAdjacencyInterpreter.makeInterpretation(contigsByPossibleRawTypes.simple, svDiscoveryInputMetaData);
-        contigsByPossibleRawTypes.simple.unpersist();
-        SVVCFWriter.writeVCF(simpleVariants, outputPrefixWithSampleName + "NonComplex.vcf",
-                svDiscoveryInputMetaData.getReferenceData().getReferenceSequenceDictionaryBroadcast().getValue(),
-                svDiscoveryInputMetaData.getToolLogger());
-
-        final List<VariantContext> complexVariants =
-                CpxVariantInterpreter.makeInterpretation(contigsByPossibleRawTypes.complex, svDiscoveryInputMetaData);
-        contigsByPossibleRawTypes.complex.unpersist();
-        SVVCFWriter.writeVCF(complexVariants, outputPrefixWithSampleName + "Complex.vcf",
-                svDiscoveryInputMetaData.getReferenceData().getReferenceSequenceDictionaryBroadcast().getValue(),
-                svDiscoveryInputMetaData.getToolLogger());
+        final CpxAndReInterpretedSimpleVariants complexChimeraVariants =
+                extractCpxVariants(ctx, contigsByPossibleRawTypes.complex, svDiscoveryInputMetaData, assemblyRawAlignments, outputPrefixWithSampleName);
+        contigsByPossibleRawTypes.complex.unpersist(false);
 
         if (writeSAMFiles) {
             contigsByPossibleRawTypes.writeSAMfilesForUnknown(outputPrefixWithSampleName, assemblyRawAlignments,
                     svDiscoveryInputMetaData.getSampleSpecificData().getHeaderBroadcast().getValue());
         }
+        contigsByPossibleRawTypes.unknown.unpersist(false);
+
+        final List<VariantContext> inversions = extractInversions();// TODO: 6/29/18 placeholder
+
+        // merged output
+        final List<VariantContext> merged = new ArrayList<>(20_000); // estimated size
+        merged.addAll(simpleChimeraVariants);
+        merged.addAll(complexChimeraVariants.reInterpretedSimpleVariants);
+        merged.addAll(inversions);
+        return merged;
+    }
+
+    // return simple variants, including BND's
+    private static List<VariantContext> extractSimpleVariants(final JavaRDD<AssemblyContigWithFineTunedAlignments> contigsWithSimpleChimera,
+                                                              final SvDiscoveryInputMetaData svDiscoveryInputMetaData,
+                                                              final String outputPrefixWithSampleName) {
+        final List<VariantContext> simpleVariants =
+                SimpleNovelAdjacencyInterpreter.makeInterpretation(contigsWithSimpleChimera, svDiscoveryInputMetaData);
+        final Logger logger = svDiscoveryInputMetaData.getDiscoverStageArgs().runInDebugMode ? svDiscoveryInputMetaData.getToolLogger() : null;
+        SVVCFWriter.writeVCF(simpleVariants, outputPrefixWithSampleName + "NonComplex.vcf",
+                svDiscoveryInputMetaData.getReferenceData().getReferenceSequenceDictionaryBroadcast().getValue(),
+                logger);
+        return simpleVariants;
+    }
+
+    private static final class CpxAndReInterpretedSimpleVariants {
+        private final List<VariantContext> cpxVariants;
+        private final List<VariantContext> reInterpretedSimpleVariants;
+
+        CpxAndReInterpretedSimpleVariants(final List<VariantContext> cpxVariants, final List<VariantContext> reInterpretedSimpleVariants) {
+            this.cpxVariants = cpxVariants;
+            this.reInterpretedSimpleVariants = reInterpretedSimpleVariants;
+        }
+    }
+
+    private static CpxAndReInterpretedSimpleVariants extractCpxVariants(final JavaSparkContext ctx,
+                                                                        final JavaRDD<AssemblyContigWithFineTunedAlignments> contigsWithCpxAln,
+                                                                        final SvDiscoveryInputMetaData svDiscoveryInputMetaData,
+                                                                        final JavaRDD<GATKRead> assemblyRawAlignments,
+                                                                        final String outputPrefixWithSampleName) {
+        final Logger toolLogger = svDiscoveryInputMetaData.getDiscoverStageArgs().runInDebugMode ? svDiscoveryInputMetaData.getToolLogger() : null;
+        final List<VariantContext> complexVariants =
+                CpxVariantInterpreter.makeInterpretation(contigsWithCpxAln, svDiscoveryInputMetaData);
+        SVVCFWriter.writeVCF(complexVariants, outputPrefixWithSampleName + "Complex.vcf",
+                svDiscoveryInputMetaData.getReferenceData().getReferenceSequenceDictionaryBroadcast().getValue(),
+                toolLogger);
 
         final JavaRDD<VariantContext> complexVariantsRDD = ctx.parallelize(complexVariants);
         final SegmentedCpxVariantSimpleVariantExtractor.ExtractedSimpleVariants reInterpretedSimple =
                 SegmentedCpxVariantSimpleVariantExtractor.extract(complexVariantsRDD, svDiscoveryInputMetaData, assemblyRawAlignments);
         final SAMSequenceDictionary refSeqDict = svDiscoveryInputMetaData.getReferenceData().getReferenceSequenceDictionaryBroadcast().getValue();
-        final Logger toolLogger = svDiscoveryInputMetaData.getToolLogger();
         final String derivedOneSegmentSimpleVCF = outputPrefixWithSampleName + "cpx_reinterpreted_simple_1_seg.vcf";
         final String derivedMultiSegmentSimpleVCF = outputPrefixWithSampleName + "cpx_reinterpreted_simple_multi_seg.vcf";
         SVVCFWriter.writeVCF(reInterpretedSimple.getReInterpretZeroOrOneSegmentCalls(), derivedOneSegmentSimpleVCF, refSeqDict, toolLogger);
         SVVCFWriter.writeVCF(reInterpretedSimple.getReInterpretMultiSegmentsCalls(), derivedMultiSegmentSimpleVCF, refSeqDict, toolLogger);
+
+        return new CpxAndReInterpretedSimpleVariants(complexVariants, reInterpretedSimple.getMergedReInterpretCalls());
+    }
+
+    // TODO: 6/29/18 when BND variants are interpreted using short read evidence (e.g. EvidenceTargetLinks, resolved inversions), put it here
+    private static List<VariantContext> extractInversions() {
+        return Collections.emptyList();
     }
 
     //==================================================================================================================

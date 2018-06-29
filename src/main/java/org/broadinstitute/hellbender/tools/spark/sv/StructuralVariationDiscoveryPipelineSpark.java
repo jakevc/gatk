@@ -287,8 +287,13 @@ public class StructuralVariationDiscoveryPipelineSpark extends GATKSparkTool {
         SvDiscoverFromLocalAssemblyContigAlignmentsSpark.AssemblyContigsClassifiedByAlignmentSignatures contigsByPossibleRawTypes
                 = SvDiscoverFromLocalAssemblyContigAlignmentsSpark.preprocess(svDiscoveryInputMetaData, assemblyRawAlignments);
 
-        SvDiscoverFromLocalAssemblyContigAlignmentsSpark.dispatchJobs(ctx, contigsByPossibleRawTypes,
+        final List<VariantContext> variants = SvDiscoverFromLocalAssemblyContigAlignmentsSpark.dispatchJobs(ctx, contigsByPossibleRawTypes,
                 svDiscoveryInputMetaData, assemblyRawAlignments, true);
+
+        final String out = updatedOutputPath + "merged_simple.vcf";
+        SVVCFWriter.writeVCF(variants, out,
+                svDiscoveryInputMetaData.getReferenceData().getReferenceSequenceDictionaryBroadcast().getValue(),
+                svDiscoveryInputMetaData.getToolLogger());
     }
 
     private static JavaRDD<GATKRead> getContigRawAlignments(final JavaSparkContext ctx,
