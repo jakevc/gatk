@@ -60,9 +60,9 @@ public class CpxVariantReInterpreterSpark extends GATKSparkTool {
     }
 
     @ArgumentCollection
-    private StructuralVariationDiscoveryArgumentCollection.DiscoverVariantsFromContigsAlignmentsSparkArgumentCollection
+    private StructuralVariationDiscoveryArgumentCollection.VariantsDiscoveryFromContigsAlignmentsSparkArgumentCollection
             discoverStageArgs
-            = new StructuralVariationDiscoveryArgumentCollection.DiscoverVariantsFromContigsAlignmentsSparkArgumentCollection();
+            = new StructuralVariationDiscoveryArgumentCollection.VariantsDiscoveryFromContigsAlignmentsSparkArgumentCollection();
 
     @Argument(doc = "file containing non-canonical chromosome names (e.g chrUn_KI270588v1) in the reference, human reference (hg19 or hg38) assumed when omitted",
             shortName = "alt-tigs",

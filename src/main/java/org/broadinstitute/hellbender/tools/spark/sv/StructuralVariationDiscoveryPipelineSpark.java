@@ -18,7 +18,7 @@ import org.broadinstitute.hellbender.cmdline.programgroups.StructuralVariantDisc
 import org.broadinstitute.hellbender.engine.datasources.ReferenceMultiSource;
 import org.broadinstitute.hellbender.engine.spark.GATKSparkTool;
 import org.broadinstitute.hellbender.exceptions.GATKException;
-import org.broadinstitute.hellbender.tools.spark.sv.StructuralVariationDiscoveryArgumentCollection.DiscoverVariantsFromContigsAlignmentsSparkArgumentCollection;
+import org.broadinstitute.hellbender.tools.spark.sv.StructuralVariationDiscoveryArgumentCollection.VariantsDiscoveryFromContigsAlignmentsSparkArgumentCollection;
 import org.broadinstitute.hellbender.tools.spark.sv.StructuralVariationDiscoveryArgumentCollection.FindBreakpointEvidenceSparkArgumentCollection;
 import org.broadinstitute.hellbender.tools.spark.sv.discovery.AnnotatedVariantProducer;
 import org.broadinstitute.hellbender.tools.spark.sv.discovery.SvDiscoverFromLocalAssemblyContigAlignmentsSpark;
@@ -122,8 +122,8 @@ public class StructuralVariationDiscoveryPipelineSpark extends GATKSparkTool {
     private final FindBreakpointEvidenceSparkArgumentCollection evidenceAndAssemblyArgs
             = new FindBreakpointEvidenceSparkArgumentCollection();
     @ArgumentCollection
-    private final DiscoverVariantsFromContigsAlignmentsSparkArgumentCollection discoverStageArgs
-            = new DiscoverVariantsFromContigsAlignmentsSparkArgumentCollection();
+    private final VariantsDiscoveryFromContigsAlignmentsSparkArgumentCollection discoverStageArgs
+            = new VariantsDiscoveryFromContigsAlignmentsSparkArgumentCollection();
 
     @Argument(doc = "sam file for aligned contigs", fullName = "contig-sam-file")
     private String outputAssemblyAlignments;
@@ -252,7 +252,7 @@ public class StructuralVariationDiscoveryPipelineSpark extends GATKSparkTool {
             final PairedStrandedIntervalTree<EvidenceTargetLink> evidenceTargetLinks = svDiscoveryInputMetaData.getSampleSpecificData().getEvidenceTargetLinks();
             final ReadMetadata readMetadata = svDiscoveryInputMetaData.getSampleSpecificData().getReadMetadata();
             final ReferenceMultiSource reference = svDiscoveryInputMetaData.getReferenceData().getReferenceBroadcast().getValue();
-            final DiscoverVariantsFromContigsAlignmentsSparkArgumentCollection discoverStageArgs = svDiscoveryInputMetaData.getDiscoverStageArgs();
+            final VariantsDiscoveryFromContigsAlignmentsSparkArgumentCollection discoverStageArgs = svDiscoveryInputMetaData.getDiscoverStageArgs();
             final Logger toolLogger = svDiscoveryInputMetaData.getToolLogger();
 
             // annotate with evidence links
@@ -389,8 +389,7 @@ public class StructuralVariationDiscoveryPipelineSpark extends GATKSparkTool {
                             SvDiscoverFromLocalAssemblyContigAlignmentsSpark.
                                     SAMFormattedContigAlignmentParser.
                                     parseReadsAndOptionallySplitGappedAlignments(forOneContig,
-                                            StructuralVariationDiscoveryArgumentCollection
-                                                    .DiscoverVariantsFromContigsAlignmentsSparkArgumentCollection
+                                            VariantsDiscoveryFromContigsAlignmentsSparkArgumentCollection
                                                     .GAPPED_ALIGNMENT_BREAK_DEFAULT_SENSITIVITY,
                                             true));
         }
@@ -452,8 +451,7 @@ public class StructuralVariationDiscoveryPipelineSpark extends GATKSparkTool {
                     .map(bwaMemAlignment -> BwaMemAlignmentUtils.applyAlignment(contigName, contigSequence, null,
                             null, bwaMemAlignment, refNames, header, false, false))
                     .map(AlignmentInterval::new)
-                    .map(ar -> ContigAlignmentsModifier.splitGappedAlignment(ar, StructuralVariationDiscoveryArgumentCollection
-                            .DiscoverVariantsFromContigsAlignmentsSparkArgumentCollection
+                    .map(ar -> ContigAlignmentsModifier.splitGappedAlignment(ar, VariantsDiscoveryFromContigsAlignmentsSparkArgumentCollection
                             .GAPPED_ALIGNMENT_BREAK_DEFAULT_SENSITIVITY, contigSequence.length))
                     .flatMap(Utils::stream).collect(Collectors.toList());
         }
