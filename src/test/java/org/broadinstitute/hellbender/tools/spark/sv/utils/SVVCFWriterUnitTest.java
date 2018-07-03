@@ -77,10 +77,10 @@ public class SVVCFWriterUnitTest extends GATKBaseTest {
         Assert.assertTrue(vcfHeader.getFilterLines().isEmpty());
         final List<String> refContigs = vcfHeader.getContigLines().stream().map(VCFContigHeaderLine::getID).collect(Collectors.toList());
         Assert.assertTrue(refContigs.size()==2);
-        Assert.assertTrue(vcfHeader.getFormatHeaderLines().isEmpty());
+
         final List<String> headerKeys = vcfHeader.getIDHeaderLines().stream().map(VCFIDHeaderLine::getID).sorted().collect(Collectors.toList());
         Assert.assertTrue(headerKeys.remove(VCFConstants.END_KEY));
         Assert.assertTrue(headerKeys.removeAll(refContigs));
-        Assert.assertEquals(headerKeys, GATKSVVCFConstants.expectedHeaderLinesInVCF);
+        Assert.assertEquals(headerKeys, GATKSVVCFConstants.expectedHeaderKeysInVCF);
     }
 }
