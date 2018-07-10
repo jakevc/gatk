@@ -155,13 +155,6 @@ public class StructuralVariationDiscoveryPipelineSpark extends GATKSparkTool {
 
         validateParams();
 
-        Utils.validate(evidenceAndAssemblyArgs.externalEvidenceFile == null || discoverStageArgs.cnvCallsFile == null,
-                "Please only specify one of externalEvidenceFile or cnvCallsFile");
-
-        if (discoverStageArgs.cnvCallsFile != null) {
-            evidenceAndAssemblyArgs.externalEvidenceFile = discoverStageArgs.cnvCallsFile;
-        }
-
         JavaRDD<GATKRead> unfilteredReads = getUnfilteredReads();
         final SAMFileHeader headerForReads = getHeaderForReads();
 
@@ -206,9 +199,18 @@ public class StructuralVariationDiscoveryPipelineSpark extends GATKSparkTool {
         }
     }
 
+    // init ============================================================================================================
+
     private void validateParams() {
         evidenceAndAssemblyArgs.validate();
         discoverStageArgs.validate();
+
+        Utils.validate(evidenceAndAssemblyArgs.externalEvidenceFile == null || discoverStageArgs.cnvCallsFile == null,
+                "Please only specify one of externalEvidenceFile or cnvCallsFile");
+
+        if (discoverStageArgs.cnvCallsFile != null) {
+            evidenceAndAssemblyArgs.externalEvidenceFile = discoverStageArgs.cnvCallsFile;
+        }
     }
 
     private SvDiscoveryInputMetaData getSvDiscoveryInputData(final JavaSparkContext ctx,
@@ -232,6 +234,81 @@ public class StructuralVariationDiscoveryPipelineSpark extends GATKSparkTool {
                 assembledEvidenceResults.getReadMetadata(), assembledEvidenceResults.getAssembledIntervals(),
                 makeEvidenceLinkTree(assembledEvidenceResults.getEvidenceTargetLinks()),
                 cnvCallsBroadcast, getHeaderForReads(), getReference(), localLogger);
+    }
+
+    public static Broadcast<SVIntervalTree<VariantContext>> broadcastCNVCalls(final JavaSparkContext ctx,
+                                                                              final SAMFileHeader header,
+                                                                              final String cnvCallsFile) {
+        final SVIntervalTree<VariantContext> cnvCalls;
+        if (cnvCallsFile != null) {
+            cnvCalls = CNVInputReader.loadCNVCalls(cnvCallsFile, header);
+        } else {
+            cnvCalls = null;
+        }
+
+        final Broadcast<SVIntervalTree<VariantContext>> broadcastCNVCalls;
+        if (cnvCalls != null) {
+            broadcastCNVCalls = ctx.broadcast(cnvCalls);
+        } else {
+            broadcastCNVCalls = null;
+        }
+        return broadcastCNVCalls;
+    }
+
+    /**
+     * Makes a PairedStrandedIntervalTree from a list of EvidenceTargetLinks. The value of each entry in the resulting tree
+     * will be the original EvidenceTargetLink. If the input list is null, returns a null tree.
+     */
+    private PairedStrandedIntervalTree<EvidenceTargetLink> makeEvidenceLinkTree(final List<EvidenceTargetLink> evidenceTargetLinks) {
+        final PairedStrandedIntervalTree<EvidenceTargetLink> evidenceLinkTree;
+
+        if (evidenceTargetLinks != null) {
+            evidenceLinkTree = new PairedStrandedIntervalTree<>();
+            evidenceTargetLinks.forEach(l -> evidenceLinkTree.put(l.getPairedStrandedIntervals(), l));
+        } else {
+            evidenceLinkTree = null;
+        }
+        return evidenceLinkTree;
+    }
+
+    // interpretation: assembly-based ==================================================================================
+
+    private static void experimentalInterpretation(final JavaSparkContext ctx,
+                                                   final FindBreakpointEvidenceSpark.AssembledEvidenceResults assembledEvidenceResults,
+                                                   final SvDiscoveryInputMetaData svDiscoveryInputMetaData) {
+
+        final JavaRDD<GATKRead> assemblyRawAlignments = getContigRawAlignments(ctx, assembledEvidenceResults, svDiscoveryInputMetaData);
+
+        final String updatedOutputPath = svDiscoveryInputMetaData.getOutputPath() + "experimentalInterpretation_";
+        svDiscoveryInputMetaData.updateOutputPath(updatedOutputPath);
+
+        SvDiscoverFromLocalAssemblyContigAlignmentsSpark.AssemblyContigsClassifiedByAlignmentSignatures contigsByPossibleRawTypes
+                = SvDiscoverFromLocalAssemblyContigAlignmentsSpark.preprocess(svDiscoveryInputMetaData, assemblyRawAlignments);
+
+        final List<VariantContext> variants = SvDiscoverFromLocalAssemblyContigAlignmentsSpark
+                .dispatchJobs(ctx, contigsByPossibleRawTypes, svDiscoveryInputMetaData, assemblyRawAlignments, true);
+
+        SvDiscoverFromLocalAssemblyContigAlignmentsSpark.filterAndWriteMergedVCF(updatedOutputPath, variants, svDiscoveryInputMetaData);
+    }
+
+    private static JavaRDD<GATKRead> getContigRawAlignments(final JavaSparkContext ctx,
+                                                            final FindBreakpointEvidenceSpark.AssembledEvidenceResults assembledEvidenceResults,
+                                                            final SvDiscoveryInputMetaData svDiscoveryInputMetaData) {
+        final Broadcast<SAMSequenceDictionary> referenceSequenceDictionaryBroadcast =
+                svDiscoveryInputMetaData.getReferenceData().getReferenceSequenceDictionaryBroadcast();
+        final Broadcast<SAMFileHeader> headerBroadcast = svDiscoveryInputMetaData.getSampleSpecificData().getHeaderBroadcast();
+        final SAMFileHeader headerForReads = headerBroadcast.getValue();
+        final SAMReadGroupRecord contigAlignmentsReadGroup = new SAMReadGroupRecord(SVUtils.GATKSV_CONTIG_ALIGNMENTS_READ_GROUP_ID);
+        final List<String> refNames = SequenceDictionaryUtils.getContigNamesList(referenceSequenceDictionaryBroadcast.getValue());
+
+        return ctx.parallelize(
+                assembledEvidenceResults
+                        .getAlignedAssemblyOrExcuseList().stream()
+                        .filter(AlignedAssemblyOrExcuse::isNotFailure)
+                        .flatMap(aa -> aa.toSAMStreamForAlignmentsOfThisAssembly(headerForReads, refNames, contigAlignmentsReadGroup))
+                        .map(SAMRecordToGATKReadAdapter::new)
+                        .collect(Collectors.toList())
+        );
     }
 
     /**
@@ -277,59 +354,7 @@ public class StructuralVariationDiscoveryPipelineSpark extends GATKSparkTool {
         return annotatedVariants;
     }
 
-    private static void experimentalInterpretation(final JavaSparkContext ctx,
-                                                   final FindBreakpointEvidenceSpark.AssembledEvidenceResults assembledEvidenceResults,
-                                                   final SvDiscoveryInputMetaData svDiscoveryInputMetaData) {
-
-        final JavaRDD<GATKRead> assemblyRawAlignments = getContigRawAlignments(ctx, assembledEvidenceResults, svDiscoveryInputMetaData);
-
-        final String updatedOutputPath = svDiscoveryInputMetaData.getOutputPath() + "experimentalInterpretation_";
-        svDiscoveryInputMetaData.updateOutputPath(updatedOutputPath);
-
-        SvDiscoverFromLocalAssemblyContigAlignmentsSpark.AssemblyContigsClassifiedByAlignmentSignatures contigsByPossibleRawTypes
-                = SvDiscoverFromLocalAssemblyContigAlignmentsSpark.preprocess(svDiscoveryInputMetaData, assemblyRawAlignments);
-
-        final List<VariantContext> variants = SvDiscoverFromLocalAssemblyContigAlignmentsSpark
-                .dispatchJobs(ctx, contigsByPossibleRawTypes, svDiscoveryInputMetaData, assemblyRawAlignments, true);
-
-        SvDiscoverFromLocalAssemblyContigAlignmentsSpark.filterAndWriteMergedVCF(updatedOutputPath, variants, svDiscoveryInputMetaData);
-    }
-
-    private static JavaRDD<GATKRead> getContigRawAlignments(final JavaSparkContext ctx,
-                                                            final FindBreakpointEvidenceSpark.AssembledEvidenceResults assembledEvidenceResults,
-                                                            final SvDiscoveryInputMetaData svDiscoveryInputMetaData) {
-        final Broadcast<SAMSequenceDictionary> referenceSequenceDictionaryBroadcast =
-                svDiscoveryInputMetaData.getReferenceData().getReferenceSequenceDictionaryBroadcast();
-        final Broadcast<SAMFileHeader> headerBroadcast = svDiscoveryInputMetaData.getSampleSpecificData().getHeaderBroadcast();
-        final SAMFileHeader headerForReads = headerBroadcast.getValue();
-        final SAMReadGroupRecord contigAlignmentsReadGroup = new SAMReadGroupRecord(SVUtils.GATKSV_CONTIG_ALIGNMENTS_READ_GROUP_ID);
-        final List<String> refNames = SequenceDictionaryUtils.getContigNamesList(referenceSequenceDictionaryBroadcast.getValue());
-
-        return ctx.parallelize(
-                assembledEvidenceResults
-                        .getAlignedAssemblyOrExcuseList().stream()
-                        .filter(AlignedAssemblyOrExcuse::isNotFailure)
-                        .flatMap(aa -> aa.toSAMStreamForAlignmentsOfThisAssembly(headerForReads, refNames, contigAlignmentsReadGroup))
-                        .map(SAMRecordToGATKReadAdapter::new)
-                        .collect(Collectors.toList())
-        );
-    }
-
-    /**
-     * Makes a PairedStrandedIntervalTree from a list of EvidenceTargetLinks. The value of each entry in the resulting tree
-     * will be the original EvidenceTargetLink. If the input list is null, returns a null tree.
-     */
-    private PairedStrandedIntervalTree<EvidenceTargetLink> makeEvidenceLinkTree(final List<EvidenceTargetLink> evidenceTargetLinks) {
-        final PairedStrandedIntervalTree<EvidenceTargetLink> evidenceLinkTree;
-
-        if (evidenceTargetLinks != null) {
-            evidenceLinkTree = new PairedStrandedIntervalTree<>();
-            evidenceTargetLinks.forEach(l -> evidenceLinkTree.put(l.getPairedStrandedIntervals(), l));
-        } else {
-            evidenceLinkTree = null;
-        }
-        return evidenceLinkTree;
-    }
+    // parser ==========================================================================================================
 
     public static final class InMemoryAlignmentParser extends AlignedContigGenerator implements Serializable {
         private static final long serialVersionUID = 1L;
@@ -464,25 +489,6 @@ public class StructuralVariationDiscoveryPipelineSpark extends GATKSparkTool {
             //                         ; the two routes are tested to be generating the same output via {@code AlignedContigGeneratorUnitTest#testConvertAlignedAssemblyOrExcuseToAlignedContigsDirectAndConcordanceWithSAMRoute()}
             return filterAndConvertToAlignedContigViaSAM(alignedAssemblyOrExcuseList, header, ctx);
         }
-    }
-
-    public static Broadcast<SVIntervalTree<VariantContext>> broadcastCNVCalls(final JavaSparkContext ctx,
-                                                                              final SAMFileHeader header,
-                                                                              final String cnvCallsFile) {
-        final SVIntervalTree<VariantContext> cnvCalls;
-        if (cnvCallsFile != null) {
-            cnvCalls = CNVInputReader.loadCNVCalls(cnvCallsFile, header);
-        } else {
-            cnvCalls = null;
-        }
-
-        final Broadcast<SVIntervalTree<VariantContext>> broadcastCNVCalls;
-        if (cnvCalls != null) {
-            broadcastCNVCalls = ctx.broadcast(cnvCalls);
-        } else {
-            broadcastCNVCalls = null;
-        }
-        return broadcastCNVCalls;
     }
 
 }
