@@ -6,7 +6,7 @@ import com.google.common.annotations.VisibleForTesting;
 import htsjdk.samtools.CigarElement;
 import htsjdk.samtools.CigarOperator;
 import htsjdk.samtools.TextCigarCodec;
-import htsjdk.tribble.AbstractFeatureReader;
+import htsjdk.samtools.util.IOUtil;
 import htsjdk.tribble.bed.BEDFeature;
 import org.apache.commons.lang3.tuple.ImmutablePair;
 import org.broadinstitute.hellbender.engine.FeatureDataSource;
@@ -124,7 +124,7 @@ public final class XGBoostEvidenceFilter implements Iterator<BreakpointEvidence>
 
     private static InputStream resourcePathToInputStream(final String resourcePath) throws IOException {
         final InputStream inputStream = XGBoostEvidenceFilter.class.getResourceAsStream(resourcePath);
-        return AbstractFeatureReader.hasBlockCompressedExtension(resourcePath) ?
+        return IOUtil.hasBlockCompressedExtension(resourcePath) ?
                 IOUtils.makeZippedInputStream(new BufferedInputStream(inputStream))
                 : inputStream;
     }

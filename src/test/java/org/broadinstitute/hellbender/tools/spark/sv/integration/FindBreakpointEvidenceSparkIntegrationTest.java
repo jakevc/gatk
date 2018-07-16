@@ -24,8 +24,6 @@ import java.util.List;
  */
 public class FindBreakpointEvidenceSparkIntegrationTest extends CommandLineProgramTest {
 
-    private static final File expectedSAMfile = IOUtils.getPath(SVIntegrationTestDataProvider.EXPECTED_ALIGNED_CONTIGS).toFile();
-
     private static final class FindBreakpointEvidenceSparkIntegrationTestArgs {
         final String expectedAlignedContigsLoc;
         final String bamLoc;
@@ -126,6 +124,7 @@ public class FindBreakpointEvidenceSparkIntegrationTest extends CommandLineProgr
         runCommandLine(args);
 
         final File actualSAMfile = new File(params.outputDir, "assemblies.sam");
+        final File expectedSAMfile = IOUtils.getPath(params.expectedAlignedContigsLoc).toFile();
         IntegrationTestSpec.assertEqualTextFiles(actualSAMfile, expectedSAMfile);
     }
 
@@ -153,6 +152,7 @@ public class FindBreakpointEvidenceSparkIntegrationTest extends CommandLineProgr
 
             final File actualSAMfile = BaseTest.createTempFile("assemblies", ".sam");
             cluster.getFileSystem().copyToLocalFile(new Path(workingDirectory, "assemblies.sam"), new Path(actualSAMfile.toURI()));
+            final File expectedSAMfile = IOUtils.getPath(params.expectedAlignedContigsLoc).toFile();
             IntegrationTestSpec.assertEqualTextFiles(actualSAMfile, expectedSAMfile);
         });
     }
