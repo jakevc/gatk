@@ -32,10 +32,15 @@ import java.util.*;
 public final class XGBoostEvidenceFilter implements Iterator<BreakpointEvidence> {
     // use fast math exp for logistic function in XGBoost?
     private static final boolean USE_FAST_MATH_EXP = true;
-    // toggleable implementation decision that may need to be revisited.
-    // To-do: enough experimentation to finalize design and remove this variable and unused code path.
+    // toggleable implementation decision that may need to be revisited. This is bad software design but only needs to
+    // persist in the short term while I actively tweak these variables as I test classifier design.
+    // ### TO-DO: ### finalize design and remove these variables and unused code paths. Issue 5041
     // - merge templateSize and readCounts columns to avoid NaNs?
     private static final boolean MERGE_TEMPLATE_SIZE_AND_READ_COUNTS = true;
+    // - merge overlapping genome gaps when calculating overlap with BreakpointEvidence?
+    private static final boolean MERGE_OVERLAPPING_GENOME_GAPS = false;
+    // - merge overlapping genome mappability k-mers when calculating overlap with BreakpointEvidence?
+    private static final boolean MERGE_OVERLAPPING_GENOME_MAPPABILITY_KMERS = false;
 
     private static final List<Class<?>> DEFAULT_EVIDENCE_TYPE_ORDER = Arrays.asList(
             TemplateSizeAnomaly.class, MateUnmapped.class, InterContigPair.class,
@@ -172,12 +177,16 @@ public final class XGBoostEvidenceFilter implements Iterator<BreakpointEvidence>
 
     private boolean anyPassesFilter(final List<BreakpointEvidence> evidenceList) {
         for(final BreakpointEvidence evidence : evidenceList) {
-            final double evidenceGoodProbability = predictor.predictSingle(getFeatures(evidence));
-            if(evidenceGoodProbability > thresholdProbability) {
+            if(predictProbability(evidence) > thresholdProbability) {
                 return true;
             }
         }
         return false;
+    }
+
+    @VisibleForTesting
+    double predictProbability(final BreakpointEvidence evidence) {
+        return predictor.predictSingle(getFeatures(evidence));
     }
 
     /**
@@ -196,11 +205,18 @@ public final class XGBoostEvidenceFilter implements Iterator<BreakpointEvidence>
 
         // calculate properties related to overlap of intervals on the reference genome
         final double referenceGapOverlap = genomeGaps == null ?
-                DEFAULT_GOOD_GAP_OVERLAP : getGenomeIntervalsOverlap(evidence, genomeGaps, readMetadata);
+                DEFAULT_GOOD_GAP_OVERLAP
+                : getGenomeIntervalsOverlap(evidence, genomeGaps, readMetadata, MERGE_OVERLAPPING_GENOME_GAPS);
         final double umapS100 = umapS100Mappability == null ?
-                DEFAULT_GOOD_MAPPABILITY : getGenomeIntervalsOverlap(evidence, umapS100Mappability, readMetadata);
+                DEFAULT_GOOD_MAPPABILITY
+                : getGenomeIntervalsOverlap(evidence, umapS100Mappability, readMetadata, MERGE_OVERLAPPING_GENOME_MAPPABILITY_KMERS);
 
         // either templateSize is defined (for ReadEvidence) or readCount (for TemplateSizeAnomaly).
+        /**
+         * #### TO-DO: #### remove boolean toggle to switch code paths, and remove unused code path. Issue 5041
+         * Classifier feature design is not complete, and it is still uncertain if there is performance cost for leaving
+         * templateSize and readCounts unmerged (so that one of them is always NaN).
+         */
         if(MERGE_TEMPLATE_SIZE_AND_READ_COUNTS) {
             final double templateSizeOrReadCount = getTemplateSizeOrReadCount(evidence);
             return new EvidenceFeatures(
@@ -432,19 +448,50 @@ public final class XGBoostEvidenceFilter implements Iterator<BreakpointEvidence>
         }
     }
 
+    /**
+     * Calculate fractional overlap of BreakpointEvidence with genome tract data.
+     * ##### TO-DO: ##### remove boolean toggle for two different code paths, and remove unused code path. Issue 5041
+     * if mergeOverlappingGenomeIntervals is true:
+     *     merge any genomeIntervals that overlap each other. returns the fraction of base pairs in evidence that
+     *     overlap one of the genomeIntervals. returned value will be double between 0 and 1 (inclusive)
+     * if mergeOverlappingGenomeIntervals is false:
+     *     separately sum the number of base pairs in genomeIntervals that overlap evidence (allowing base pairs to
+     *     count multiple times if there is overlap in genomeIntervals) then divide by length of evidence. returned
+     *     value will be double >= 0, but may be larger than 1 if any genomeIntervals overlap each other.
+     */
     private static double getGenomeIntervalsOverlap(final BreakpointEvidence evidence,
                                                     final FeatureDataSource<BEDFeature> genomeIntervals,
-                                                    final ReadMetadata readMetadata) {
+                                                    final ReadMetadata readMetadata,
+                                                    final boolean mergeOverlappingGenomeIntervals) {
         final SimpleInterval simpleInterval = evidence.getLocation().toSimpleInterval(readMetadata);
-        double overlap = 0.0;
-        for(final Iterator<BEDFeature> overlapperItr = genomeIntervals.query(simpleInterval);
-            overlapperItr.hasNext();) {
-            final BEDFeature overlapper = overlapperItr.next();
-            // " + 1" because genome tract data is semi-closed, but BEDFeature is fully closed
-            final double overlapLength = Double.min(simpleInterval.getEnd(), overlapper.getEnd()) + 1
-                    - Double.max(simpleInterval.getStart(), overlapper.getStart());
-            overlap += overlapLength / simpleInterval.size();
+        int overlap = 0;
+        if(mergeOverlappingGenomeIntervals) {
+            int maxEnd = Integer.MIN_VALUE;
+            for(final Iterator<BEDFeature> overlapperItr = genomeIntervals.query(simpleInterval);
+                 overlapperItr.hasNext();) {
+                final BEDFeature overlapper = overlapperItr.next();
+                if(overlapper.getEnd() <= maxEnd) {
+                    continue;
+                }
+                // " + 1" because genome tract data is semi-closed, but BEDFeature is fully closed
+                final int overlapLength = Math.min(simpleInterval.getEnd(), overlapper.getEnd()) + 1
+                        - Math.max(simpleInterval.getStart(), Math.max(overlapper.getStart(), maxEnd + 1));
+                overlap += overlapLength;
+                maxEnd = overlapper.getEnd();
+                if(maxEnd + 1 >= simpleInterval.getEnd()) {
+                    break;
+                }
+            }
+        } else {
+            for(final Iterator<BEDFeature> overlapperItr = genomeIntervals.query(simpleInterval);
+                 overlapperItr.hasNext();) {
+                final BEDFeature overlapper = overlapperItr.next();
+                // " + 1" because genome tract data is semi-closed, but BEDFeature is fully closed
+                final int overlapLength = Math.min(simpleInterval.getEnd(), overlapper.getEnd()) + 1
+                        - Math.max(simpleInterval.getStart(), overlapper.getStart());
+                overlap += overlapLength;
+            }
         }
-        return overlap;
+        return overlap / (double)simpleInterval.size();
     }
 }
