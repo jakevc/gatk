@@ -38,7 +38,7 @@ public final class XGBoostEvidenceFilter implements Iterator<BreakpointEvidence>
     private static final boolean MERGE_TEMPLATE_SIZE_AND_READ_COUNTS = true;
 
     private static final List<Class<?>> DEFAULT_EVIDENCE_TYPE_ORDER = Arrays.asList(
-            TemplateSizeAnomaly.class, MateUnmapped.class, InterContigPair.class,
+            ExternalEvidence.class, TemplateSizeAnomaly.class, MateUnmapped.class, InterContigPair.class,
             SplitRead.class, LargeIndel.class, WeirdTemplateSize.class, SameStrandPair.class, OutiesPair.class
     );
     private static final Map<Class<?>, Integer> evidenceTypeMap = evidenceTypeOrderToImmutableMap(DEFAULT_EVIDENCE_TYPE_ORDER);
@@ -172,12 +172,16 @@ public final class XGBoostEvidenceFilter implements Iterator<BreakpointEvidence>
 
     private boolean anyPassesFilter(final List<BreakpointEvidence> evidenceList) {
         for(final BreakpointEvidence evidence : evidenceList) {
-            final double evidenceGoodProbability = predictor.predictSingle(getFeatures(evidence));
-            if(evidenceGoodProbability > thresholdProbability) {
+            if(predictProbability(evidence) > thresholdProbability) {
                 return true;
             }
         }
         return false;
+    }
+
+    @VisibleForTesting
+    double predictProbability(final BreakpointEvidence evidence) {
+        return predictor.predictSingle(getFeatures(evidence));
     }
 
     /**
@@ -436,15 +440,23 @@ public final class XGBoostEvidenceFilter implements Iterator<BreakpointEvidence>
                                                     final FeatureDataSource<BEDFeature> genomeIntervals,
                                                     final ReadMetadata readMetadata) {
         final SimpleInterval simpleInterval = evidence.getLocation().toSimpleInterval(readMetadata);
-        double overlap = 0.0;
+        int overlap = 0;
+        int maxEnd = Integer.MIN_VALUE;
         for(final Iterator<BEDFeature> overlapperItr = genomeIntervals.query(simpleInterval);
             overlapperItr.hasNext();) {
             final BEDFeature overlapper = overlapperItr.next();
+            if(overlapper.getEnd() <= maxEnd) {
+                continue;
+            }
             // " + 1" because genome tract data is semi-closed, but BEDFeature is fully closed
-            final double overlapLength = Double.min(simpleInterval.getEnd(), overlapper.getEnd()) + 1
-                    - Double.max(simpleInterval.getStart(), overlapper.getStart());
-            overlap += overlapLength / simpleInterval.size();
+            final int overlapLength = Math.min(simpleInterval.getEnd(), overlapper.getEnd()) + 1
+                    - Math.max(simpleInterval.getStart(), Math.max(overlapper.getStart(), maxEnd + 1));
+            overlap += overlapLength;
+            maxEnd = overlapper.getEnd();
+            if(maxEnd + 1 >= simpleInterval.getEnd()) {
+                break;
+            }
         }
-        return overlap;
+        return overlap / (double)simpleInterval.size();
     }
 }

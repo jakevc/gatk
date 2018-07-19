@@ -50,8 +50,9 @@ public class XGBoostEvidenceFilterUnitTest extends GATKBaseTest {
     private static final String TEMPLATE_SIZE_CUMULATIVE_COUNTS_NODE = "template_size_cumulative_counts";
 
     private static final ClassifierAccuracyData classifierAccuracyData = new ClassifierAccuracyData(testAccuracyDataJsonFile);
+    private static final Predictor testPredictor = XGBoostEvidenceFilter.loadPredictor(localClassifierModelFile);
     private static final double[] predictedProbabilitySerial = predictProbability(
-            XGBoostEvidenceFilter.loadPredictor(localClassifierModelFile), classifierAccuracyData.features
+            testPredictor, classifierAccuracyData.features
     );
     private static final FeaturesTestData featuresTestData = new FeaturesTestData(testFeaturesJsonFile);
 
@@ -155,32 +156,43 @@ public class XGBoostEvidenceFilterUnitTest extends GATKBaseTest {
             final BreakpointEvidence evidence = evidenceList.get(ind);
             final String stringRep = featuresTestData.stringReps[ind];
             final EvidenceFeatures fVec = featuresTestData.features[ind];
+            final double probability = featuresTestData.probability[ind];
 
             final BreakpointEvidence convertedEvidence = breakpointEvidenceFactory.fromStringRep(stringRep);
             final String convertedRep = convertedEvidence.stringRep(readMetadata, params.minEvidenceMapQ);
             Assert.assertEquals(convertedRep.trim(), stringRep.trim(),
                     "BreakpointEvidenceFactory.fromStringRep does not invert BreakpointEvidence.stringRep");
             final EvidenceFeatures calcFVec = evidenceFilter.getFeatures(evidence);
-            assertArrayEquals(calcFVec.getValues(), fVec.getValues(), featuresTol, "Features calculated by XGBoostEvidenceFilter don't match expected features"
-            );
+            assertArrayEquals(calcFVec.getValues(), fVec.getValues(), featuresTol,
+                    "Features calculated by XGBoostEvidenceFilter don't match expected features");
+            final double calcProbability = evidenceFilter.predictProbability(evidence);
+            Assert.assertEquals(calcProbability, probability, probabilityTol,
+                    "Probability calculated by XGBoostEvidenceFilter doesn't match expected probability");
         }
     }
 
     @Test(groups = "sv")
     protected void testFilter() {
-        final List<BreakpointEvidence> expectedPassed = new ArrayList<>();
-        int index = 0;
-        for(final BreakpointEvidence evidence : evidenceList) {
-            final double probability = featuresTestData.probability[index];
-            if(probability > params.svEvidenceFilterThresholdProbability) {
-                expectedPassed.add(evidence);
-            }
-            index += 1;
-        }
-
+        final XGBoostEvidenceFilter evidenceFilter0 = new XGBoostEvidenceFilter(
+                evidenceList.iterator(), readMetadata, params, emptyCrossingChecker
+        );
         final XGBoostEvidenceFilter evidenceFilter = new XGBoostEvidenceFilter(
                 evidenceList.iterator(), readMetadata, params, emptyCrossingChecker
         );
+
+        // construct list of BreakpointEvidence that is expected to pass the filter
+        final List<BreakpointEvidence> expectedPassed = new ArrayList<>();
+        for(final BreakpointEvidence evidence : evidenceList) {
+            // Use the classifier to calculate probability, to ensure that minor fluctuations that happen to cross the
+            // decision threshold don't cause test failure. Here we only test if the filtering mechanism works correctly.
+            // Accuracy of probability calculation is tested in testFeatureConstruction.
+            final double probability = evidenceFilter0.predictProbability(evidence);
+            if(probability > params.svEvidenceFilterThresholdProbability) {
+                expectedPassed.add(evidence);
+            }
+        }
+
+        // use evidenceFilter to populate array with passed evidence
         final List<BreakpointEvidence> passedEvidence = new ArrayList<>();
         evidenceFilter.forEachRemaining(passedEvidence::add);
 
