@@ -257,7 +257,11 @@ public final class GATKSVVCFHeaderLines {
 
         // filter lines
         {
+            addFilterLine(new VCFFilterHeaderLine(GATKSVVCFConstants.ASSEMBLY_BASED_VARIANT_MQ_FILTER_KEY,
+                    "Assembly evidence based record that whose maximum value specified in " + GATKSVVCFConstants.MAPPING_QUALITIES + " is lower than user specified threshold"));
 
+            addFilterLine(new VCFFilterHeaderLine(GATKSVVCFConstants.ASSEMBLY_BASED_VARIANT_ALN_LENGTH_FILTER_KEY,
+                    "Assembly evidence based record that whose " + GATKSVVCFConstants.MAPPING_QUALITIES + " value is lower than user specified threshold"));
         }
     }
 }

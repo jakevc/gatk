@@ -42,6 +42,8 @@
 ##INFO=<ID=SVLEN,Number=.,Type=Integer,Description="Difference in length between REF and ALT alleles">
 ##INFO=<ID=SVTYPE,Number=1,Type=String,Description="Type of structural variant">
 ##INFO=<ID=TOTAL_MAPPINGS,Number=1,Type=Integer,Description="Number of local assembly contigs supporting the variant, i.e. number of entries in CTG_NAMES">
+##FILTER=<ID=LOW_MQ,Description="Assembly evidence based record that whose maximum value specified in MAPPING_QUALITIES is lower than user specified threshold">
+##FILTER=<ID=SHORT_ALN,Description="Assembly evidence based record that whose MAX_ALIGN_LENGTH value is lower than user specified threshold">
 ##FORMAT=<ID=CN,Number=1,Type=Integer,Description="Copy number genotype for imprecise events">
 ##FORMAT=<ID=CNQ,Number=1,Type=Float,Description="Copy number genotype quality for imprecise events">
 ##contig=<ID=chr20,length=64444167,assembly=38>

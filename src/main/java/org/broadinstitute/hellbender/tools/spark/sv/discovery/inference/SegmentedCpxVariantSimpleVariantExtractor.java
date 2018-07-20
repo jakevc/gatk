@@ -16,7 +16,6 @@ import org.broadinstitute.hellbender.tools.spark.sv.discovery.SvDiscoveryInputMe
 import org.broadinstitute.hellbender.tools.spark.sv.discovery.SvDiscoveryUtils;
 import org.broadinstitute.hellbender.tools.spark.sv.discovery.alignment.AlignedContig;
 import org.broadinstitute.hellbender.tools.spark.sv.discovery.alignment.AssemblyContigWithFineTunedAlignments;
-import org.broadinstitute.hellbender.tools.spark.sv.utils.GATKSVVCFConstants;
 import org.broadinstitute.hellbender.tools.spark.sv.utils.SVInterval;
 import org.broadinstitute.hellbender.utils.SimpleInterval;
 import org.broadinstitute.hellbender.utils.read.GATKRead;
@@ -522,17 +521,25 @@ public abstract class SegmentedCpxVariantSimpleVariantExtractor implements Seria
 
             final String sourceID = complexVC.getID();
             final List<String> evidenceContigs = SvDiscoveryUtils.getAttributeAsStringList(complexVC, CONTIG_NAMES);
+            final List<String> mappingQualities = SvDiscoveryUtils.getAttributeAsStringList(complexVC, MAPPING_QUALITIES);
+            final int maxAlignLength = complexVC.getAttributeAsInt(MAX_ALIGN_LENGTH, 0);
             return result.stream()
-                    .map(vc -> vc.attribute(CPX_EVENT_KEY, sourceID).attribute(CONTIG_NAMES, evidenceContigs).make())
+                    .map(vc -> vc.attribute(CPX_EVENT_KEY, sourceID).attribute(CONTIG_NAMES, evidenceContigs)
+                                 .attribute(MAPPING_QUALITIES, mappingQualities)
+                                 .attribute(MAX_ALIGN_LENGTH, maxAlignLength).make())
                     .collect(Collectors.toList());
         }
 
         private List<VariantContext> whenZeroSegments(final VariantContext complexVC, final ReferenceMultiSource reference) {
             final Allele anchorBaseRefAllele = getAnchorBaseRefAllele(complexVC.getContig(), complexVC.getStart(), reference);
             final int altSeqLength = complexVC.getAttributeAsString(SEQ_ALT_HAPLOTYPE, "").length() - 2;
+            final List<String> mappingQualities = SvDiscoveryUtils.getAttributeAsStringList(complexVC, MAPPING_QUALITIES);
+            final int maxAlignLength = complexVC.getAttributeAsInt(MAX_ALIGN_LENGTH, 0);
             final VariantContext insertion = makeInsertion(complexVC.getContig(), complexVC.getStart(), complexVC.getStart(), altSeqLength, anchorBaseRefAllele)
                     .attribute(CPX_EVENT_KEY, complexVC.getID())
                     .attribute(CONTIG_NAMES, complexVC.getAttribute(CONTIG_NAMES))
+                    .attribute(MAPPING_QUALITIES, mappingQualities)
+                    .attribute(MAX_ALIGN_LENGTH, maxAlignLength)
                     .make();
             return Collections.singletonList(insertion);
         }
@@ -667,9 +674,13 @@ public abstract class SegmentedCpxVariantSimpleVariantExtractor implements Seria
 
             final String sourceID = complexVC.getID();
             final List<String> evidenceContigs = SvDiscoveryUtils.getAttributeAsStringList(complexVC, CONTIG_NAMES);
+            final List<String> mappingQualities = SvDiscoveryUtils.getAttributeAsStringList(complexVC, MAPPING_QUALITIES);
+            final int maxAlignLength = complexVC.getAttributeAsInt(MAX_ALIGN_LENGTH, 0);
 
             return result.stream()
-                    .map(vc -> vc.attribute(CPX_EVENT_KEY, sourceID).attribute(CONTIG_NAMES, evidenceContigs).make())
+                    .map(vc -> vc.attribute(CPX_EVENT_KEY, sourceID).attribute(CONTIG_NAMES, evidenceContigs)
+                                 .attribute(MAPPING_QUALITIES, mappingQualities)
+                                 .attribute(MAX_ALIGN_LENGTH, maxAlignLength).make())
                     .collect(Collectors.toList());
         }
 

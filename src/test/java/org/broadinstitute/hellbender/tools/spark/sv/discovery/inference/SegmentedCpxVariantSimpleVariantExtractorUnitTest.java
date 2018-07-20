@@ -32,6 +32,8 @@ import static org.broadinstitute.hellbender.tools.spark.sv.utils.GATKSVVCFConsta
 
 public class SegmentedCpxVariantSimpleVariantExtractorUnitTest extends GATKBaseTest {
 
+    private static final Random random = new Random(1);
+
     private static final ZeroAndOneSegmentCpxVariantExtractor zeroAndOneSegmentCpxVariantExtractor = new ZeroAndOneSegmentCpxVariantExtractor();
     private static final MultiSegmentsCpxVariantExtractor multiSegmentsCpxVariantExtractor = new MultiSegmentsCpxVariantExtractor();
 
@@ -48,7 +50,9 @@ public class SegmentedCpxVariantSimpleVariantExtractorUnitTest extends GATKBaseT
         data.add(new Object[]{complex, b38_reference_chr20_chr21, zeroAndOneSegmentCpxVariantExtractor,
                 Collections.singletonList(makeInsertion("chr20",51740560, 51740560, 549, Allele.create("A", true))
                         .attribute(CPX_EVENT_KEY, "CPX_chr20:51740560-51740561")
-                        .attribute(CONTIG_NAMES, "asm028558:tig00002,asm028558:tig00003").make())
+                        .attribute(CONTIG_NAMES, "asm028558:tig00002,asm028558:tig00003")
+                        .attribute(MAX_ALIGN_LENGTH, complex.getAttributeAsInt(MAX_ALIGN_LENGTH, 0))
+                        .attribute(MAPPING_QUALITIES, complex.getAttributeAsString(MAPPING_QUALITIES, "")).make())
         });
 
         // 2. one segment -> with inversion
@@ -59,7 +63,9 @@ public class SegmentedCpxVariantSimpleVariantExtractorUnitTest extends GATKBaseT
         data.add(new Object[]{complex, b38_reference_chr20_chr21, zeroAndOneSegmentCpxVariantExtractor,
                 Collections.singletonList(makeInversion(new SimpleInterval("chr21:402807-402904"), Allele.create("N", true)) // THE REF ALLELE N HERE IS BECAUSE OF COORDINATE MESSING on TEST DATA MENTIONED ABOVE
                         .attribute(CPX_EVENT_KEY, "CPX_chr21:402806-402905")
-                        .attribute(CONTIG_NAMES, "asm002252:tig00003").make())
+                        .attribute(CONTIG_NAMES, "asm002252:tig00003")
+                        .attribute(MAX_ALIGN_LENGTH, complex.getAttributeAsInt(MAX_ALIGN_LENGTH, 0))
+                        .attribute(MAPPING_QUALITIES, complex.getAttributeAsString(MAPPING_QUALITIES, "")).make())
         });
 
         // 3. one segment -> when deletion is not allowed
@@ -80,7 +86,9 @@ public class SegmentedCpxVariantSimpleVariantExtractorUnitTest extends GATKBaseT
                 Arrays.asList("1","UINS-28","1","UINS-64","1"));
         data.add(new Object[]{complex, b38_reference_chr20_chr21, zeroAndOneSegmentCpxVariantExtractor,
                 Collections.singletonList(makeInsertion("chr20", 18675720, 18675720, 408, Allele.create("A", true))
-                        .attribute(CPX_EVENT_KEY, "CPX_chr20:18675721-18675877").attribute(CONTIG_NAMES, "asm028012:tig00004").make())
+                        .attribute(CPX_EVENT_KEY, "CPX_chr20:18675721-18675877").attribute(CONTIG_NAMES, "asm028012:tig00004")
+                        .attribute(MAX_ALIGN_LENGTH, complex.getAttributeAsInt(MAX_ALIGN_LENGTH, 0))
+                        .attribute(MAPPING_QUALITIES, complex.getAttributeAsString(MAPPING_QUALITIES, "")).make())
         });
 
         // 3.2 -> 1, .....
@@ -89,7 +97,10 @@ public class SegmentedCpxVariantSimpleVariantExtractorUnitTest extends GATKBaseT
                 Collections.singletonList("asm028821:tig00001"), Collections.singletonList(new SimpleInterval("chr20:64096905-64097041")),
                 Arrays.asList("1","1","UINS-166"));
         data.add(new Object[]{complex, b38_reference_chr20_chr21, zeroAndOneSegmentCpxVariantExtractor,
-                Collections.singletonList(makeInsertion("chr20", 64097041, 64097041, 318, Allele.create("A", true)).attribute(CPX_EVENT_KEY, "CPX_chr20:64096905-64097041").attribute(CONTIG_NAMES, "asm028821:tig00001").make())
+                Collections.singletonList(makeInsertion("chr20", 64097041, 64097041, 318, Allele.create("A", true))
+                        .attribute(CPX_EVENT_KEY, "CPX_chr20:64096905-64097041").attribute(CONTIG_NAMES, "asm028821:tig00001")
+                        .attribute(MAX_ALIGN_LENGTH, complex.getAttributeAsInt(MAX_ALIGN_LENGTH, 0))
+                        .attribute(MAPPING_QUALITIES, complex.getAttributeAsString(MAPPING_QUALITIES, "")).make())
         });
 
         // 3.3 -> ...., 1, ....
@@ -98,8 +109,15 @@ public class SegmentedCpxVariantSimpleVariantExtractorUnitTest extends GATKBaseT
                 Arrays.asList("asm028558:tig00000", "asm028558:tig00001"), Collections.singletonList(new SimpleInterval("chr20:51740561-51741034")),
                 Arrays.asList("-chr18:11642876-11642927","UINS-496","1","UINS-49"));
         data.add(new Object[]{complex, b38_reference_chr20_chr21, zeroAndOneSegmentCpxVariantExtractor,
-                Arrays.asList(makeInsertion("chr20", 51740560, 51740560, 549, Allele.create("A", true)).attribute(CPX_EVENT_KEY, "CPX_chr20:51740560-51741035").attribute(CONTIG_NAMES, "asm028558:tig00000,asm028558:tig00001").make(),
-                        makeInsertion("chr20", 51741034, 51741034,  50, Allele.create("T", true)).attribute(CPX_EVENT_KEY, "CPX_chr20:51740560-51741035").attribute(CONTIG_NAMES, "asm028558:tig00000,asm028558:tig00001").make())
+                Arrays.asList(
+                        makeInsertion("chr20", 51740560, 51740560, 549, Allele.create("A", true))
+                                .attribute(CPX_EVENT_KEY, "CPX_chr20:51740560-51741035").attribute(CONTIG_NAMES, "asm028558:tig00000,asm028558:tig00001")
+                                .attribute(MAX_ALIGN_LENGTH, complex.getAttributeAsInt(MAX_ALIGN_LENGTH, 0))
+                                .attribute(MAPPING_QUALITIES, complex.getAttributeAsString(MAPPING_QUALITIES, "")).make(),
+                        makeInsertion("chr20", 51741034, 51741034,  50, Allele.create("T", true))
+                                .attribute(CPX_EVENT_KEY, "CPX_chr20:51740560-51741035").attribute(CONTIG_NAMES, "asm028558:tig00000,asm028558:tig00001")
+                                .attribute(MAX_ALIGN_LENGTH, complex.getAttributeAsInt(MAX_ALIGN_LENGTH, 0))
+                                .attribute(MAPPING_QUALITIES, complex.getAttributeAsString(MAPPING_QUALITIES, "")).make())
         });
 
         // 4. one segment -> whenNoInvAndNoAsIsAppearance
@@ -110,7 +128,10 @@ public class SegmentedCpxVariantSimpleVariantExtractorUnitTest extends GATKBaseT
                 Collections.singletonList("asm028026:tig00000"), Collections.singletonList(new SimpleInterval("chr20:20269131-20269199")),
                 Collections.singletonList("-chrX:137700299-137700331"));
         data.add(new Object[]{complex, b38_reference_chr20_chr21, zeroAndOneSegmentCpxVariantExtractor,
-                              Collections.singletonList(makeDeletion(new SimpleInterval("chr20:20269131-20269198"), Allele.create("A", true)).attribute(CPX_EVENT_KEY, "CPX_chr20:20269131-20269199").attribute(CONTIG_NAMES, "asm028026:tig00000").make())
+                              Collections.singletonList(makeDeletion(new SimpleInterval("chr20:20269131-20269198"), Allele.create("A", true))
+                                      .attribute(CPX_EVENT_KEY, "CPX_chr20:20269131-20269199").attribute(CONTIG_NAMES, "asm028026:tig00000")
+                                      .attribute(MAX_ALIGN_LENGTH, complex.getAttributeAsInt(MAX_ALIGN_LENGTH, 0))
+                                      .attribute(MAPPING_QUALITIES, complex.getAttributeAsString(MAPPING_QUALITIES, "")).make())
         });
         // 4.2 -> deletion and insertion
         complex = makeTestComplexVariant(new SimpleInterval("chr20:54849491-54849615"), 15,
@@ -118,8 +139,15 @@ public class SegmentedCpxVariantSimpleVariantExtractorUnitTest extends GATKBaseT
                 Collections.singletonList("asm028586:tig00000"), Collections.singletonList(new SimpleInterval("chr20:54849491-54849615")),
                 Arrays.asList("UINS-36","-chr14:58474127-58474172","UINS-54"));
         data.add(new Object[]{complex, b38_reference_chr20_chr21, zeroAndOneSegmentCpxVariantExtractor,
-                 Arrays.asList(makeDeletion(new SimpleInterval("chr20:54849491-54849614"), Allele.create("C", true)).attribute(CPX_EVENT_KEY, "CPX_chr20:54849491-54849615").attribute(CONTIG_NAMES, "asm028586:tig00000").make(),
-                               makeInsertion("chr20", 54849491, 54849491, 140, Allele.create("c", true)).attribute(CPX_EVENT_KEY, "CPX_chr20:54849491-54849615").attribute(CONTIG_NAMES, "asm028586:tig00000").make())
+                 Arrays.asList(
+                         makeDeletion(new SimpleInterval("chr20:54849491-54849614"), Allele.create("C", true))
+                                 .attribute(CPX_EVENT_KEY, "CPX_chr20:54849491-54849615").attribute(CONTIG_NAMES, "asm028586:tig00000")
+                                 .attribute(MAX_ALIGN_LENGTH, complex.getAttributeAsInt(MAX_ALIGN_LENGTH, 0))
+                                 .attribute(MAPPING_QUALITIES, complex.getAttributeAsString(MAPPING_QUALITIES, "")).make(),
+                         makeInsertion("chr20", 54849491, 54849491, 140, Allele.create("c", true))
+                                 .attribute(CPX_EVENT_KEY, "CPX_chr20:54849491-54849615").attribute(CONTIG_NAMES, "asm028586:tig00000")
+                                 .attribute(MAX_ALIGN_LENGTH, complex.getAttributeAsInt(MAX_ALIGN_LENGTH, 0))
+                                 .attribute(MAPPING_QUALITIES, complex.getAttributeAsString(MAPPING_QUALITIES, "")).make())
         });
 
         // 4.3 -> fat insertion
@@ -128,7 +156,10 @@ public class SegmentedCpxVariantSimpleVariantExtractorUnitTest extends GATKBaseT
                 Collections.singletonList("asm027960:tig00003"), Collections.singletonList(new SimpleInterval("chr20:12558793-12558810")),
                 Arrays.asList("-chrX:99014092-99014129","UINS-101"));
         data.add(new Object[]{complex, b38_reference_chr20_chr21, zeroAndOneSegmentCpxVariantExtractor,
-                 Collections.singletonList(makeInsertion("chr20", 12558793, 12558809, 133, Allele.create("AAAAAAAAAAAAAAAAA", true)).attribute(CPX_EVENT_KEY, "CPX_chr20:12558793-12558810").attribute(CONTIG_NAMES, "asm027960:tig00003").make())
+                 Collections.singletonList(makeInsertion("chr20", 12558793, 12558809, 133, Allele.create("AAAAAAAAAAAAAAAAA", true))
+                         .attribute(CPX_EVENT_KEY, "CPX_chr20:12558793-12558810").attribute(CONTIG_NAMES, "asm027960:tig00003")
+                         .attribute(MAX_ALIGN_LENGTH, complex.getAttributeAsInt(MAX_ALIGN_LENGTH, 0))
+                         .attribute(MAPPING_QUALITIES, complex.getAttributeAsString(MAPPING_QUALITIES, "")).make())
         });
 
         return data;
@@ -147,7 +178,9 @@ public class SegmentedCpxVariantSimpleVariantExtractorUnitTest extends GATKBaseT
         List<SimpleInterval> refSegments = Arrays.asList(new SimpleInterval("chr21:21264944-21264988"), new SimpleInterval("chr21:21264988-21265052"), new SimpleInterval("chr21:21265052-21265096"));
         List<String> altArrangements = Arrays.asList("1","2","3","2","1","2","3");
         VariantContext complex = makeTestComplexVariant(affectedInterval, svLen, refAllele, altSeq, ctgNames, refSegments, altArrangements);
-        List<VariantContext> expectedSimple = Collections.singletonList(makeInsertion("chr21", 21264943, 21264943, 221, Allele.create("G", true)).attribute(CPX_EVENT_KEY, "CPX_chr21:21264944-21265096").attribute(CONTIG_NAMES, ctgNames).make());
+        List<VariantContext> expectedSimple = Collections.singletonList(makeInsertion("chr21", 21264943, 21264943, 221, Allele.create("G", true)).attribute(CPX_EVENT_KEY, "CPX_chr21:21264944-21265096").attribute(CONTIG_NAMES, ctgNames)
+                .attribute(MAX_ALIGN_LENGTH, complex.getAttributeAsInt(MAX_ALIGN_LENGTH, 0))
+                .attribute(MAPPING_QUALITIES, complex.getAttributeAsString(MAPPING_QUALITIES, "")).make());
         data.add(new Object[]{complex, b38_reference_chr20_chr21, multiSegmentsCpxVariantExtractor, expectedSimple});
 
         // case 1.2: rear insertion only
@@ -159,7 +192,10 @@ public class SegmentedCpxVariantSimpleVariantExtractorUnitTest extends GATKBaseT
         refSegments = Arrays.asList(new SimpleInterval("chr20:61919906-61919908"), new SimpleInterval("chr20:61919908-61920054"), new SimpleInterval("chr20:61920054-61920109"));
         altArrangements = Arrays.asList("1","2","3","UINS-177","1","2","2","3");
         complex = makeTestComplexVariant(affectedInterval, svLen, refAllele, altSeq, ctgNames, refSegments, altArrangements);
-        expectedSimple = Collections.singletonList(makeInsertion("chr20", 61920109, 61920109, 531, Allele.create("G", true)).attribute(CPX_EVENT_KEY, "CPX_chr20:61919906-61920109").attribute(CONTIG_NAMES, ctgNames).make());
+        expectedSimple = Collections.singletonList(makeInsertion("chr20", 61920109, 61920109, 531, Allele.create("G", true))
+                .attribute(CPX_EVENT_KEY, "CPX_chr20:61919906-61920109").attribute(CONTIG_NAMES, ctgNames)
+                .attribute(MAX_ALIGN_LENGTH, complex.getAttributeAsInt(MAX_ALIGN_LENGTH, 0))
+                .attribute(MAPPING_QUALITIES, complex.getAttributeAsString(MAPPING_QUALITIES, "")).make());
         data.add(new Object[]{complex, b38_reference_chr20_chr21, multiSegmentsCpxVariantExtractor, expectedSimple});
 
         // case 1.3: front and rear insertion
@@ -171,8 +207,15 @@ public class SegmentedCpxVariantSimpleVariantExtractorUnitTest extends GATKBaseT
         refSegments = Arrays.asList(new SimpleInterval("chr20:38653054-38653113"), new SimpleInterval("chr20:38653113-38653145"), new SimpleInterval("chr20:38653145-38653179"), new SimpleInterval("chr20:38653179-38653273"), new SimpleInterval("chr20:38653273-38653283"));
         altArrangements = Arrays.asList("1","2","3","4","3","1","2","3","4","5","2","3","4","5");
         complex = makeTestComplexVariant(affectedInterval, svLen, refAllele, altSeq, ctgNames, refSegments, altArrangements);
-        expectedSimple = Arrays.asList(makeInsertion("chr20", 38653053, 38653053, 259, Allele.create("A", true)).attribute(CPX_EVENT_KEY, "CPX_chr20:38653054-38653283").attribute(CONTIG_NAMES, ctgNames).make(),
-                                       makeInsertion("chr20", 38653283, 38653283, 175, Allele.create("G", true)).attribute(CPX_EVENT_KEY, "CPX_chr20:38653054-38653283").attribute(CONTIG_NAMES, ctgNames).make());
+        expectedSimple = Arrays.asList(
+                makeInsertion("chr20", 38653053, 38653053, 259, Allele.create("A", true))
+                        .attribute(CPX_EVENT_KEY, "CPX_chr20:38653054-38653283").attribute(CONTIG_NAMES, ctgNames)
+                        .attribute(MAX_ALIGN_LENGTH, complex.getAttributeAsInt(MAX_ALIGN_LENGTH, 0))
+                        .attribute(MAPPING_QUALITIES, complex.getAttributeAsString(MAPPING_QUALITIES, "")).make(),
+                makeInsertion("chr20", 38653283, 38653283, 175, Allele.create("G", true))
+                        .attribute(CPX_EVENT_KEY, "CPX_chr20:38653054-38653283").attribute(CONTIG_NAMES, ctgNames)
+                        .attribute(MAX_ALIGN_LENGTH, complex.getAttributeAsInt(MAX_ALIGN_LENGTH, 0))
+                        .attribute(MAPPING_QUALITIES, complex.getAttributeAsString(MAPPING_QUALITIES, "")).make());
         data.add(new Object[]{complex, b38_reference_chr20_chr21, multiSegmentsCpxVariantExtractor, expectedSimple});
 
         // case 2: possibly inversion
@@ -186,7 +229,10 @@ public class SegmentedCpxVariantSimpleVariantExtractorUnitTest extends GATKBaseT
         refSegments = Arrays.asList(new SimpleInterval("chr20:23122561-23122596"), new SimpleInterval("chr20:23122596-23122666"), new SimpleInterval("chr20:23122666-23122996"));
         altArrangements = Arrays.asList("1","2","-1");
         complex = makeTestComplexVariant(affectedInterval, svLen, refAllele, altSeq, ctgNames, refSegments, altArrangements);
-        expectedSimple = Collections.singletonList(makeDeletion(new SimpleInterval("chr20:23122666-23122995"), Allele.create("C", true)).attribute(CPX_EVENT_KEY, "CPX_chr20:23122561-23122996").attribute(CONTIG_NAMES, ctgNames).make());
+        expectedSimple = Collections.singletonList(makeDeletion(new SimpleInterval("chr20:23122666-23122995"), Allele.create("C", true))
+                .attribute(CPX_EVENT_KEY, "CPX_chr20:23122561-23122996").attribute(CONTIG_NAMES, ctgNames)
+                .attribute(MAX_ALIGN_LENGTH, complex.getAttributeAsInt(MAX_ALIGN_LENGTH, 0))
+                .attribute(MAPPING_QUALITIES, complex.getAttributeAsString(MAPPING_QUALITIES, "")).make());
         data.add(new Object[]{complex, b38_reference_chr20_chr21, multiSegmentsCpxVariantExtractor, expectedSimple});
 
         // case 2.2: no as-is but with inverted, but too short (coordinate and allele massage, original event CPX_chr20:34732145-34733344)
@@ -198,7 +244,10 @@ public class SegmentedCpxVariantSimpleVariantExtractorUnitTest extends GATKBaseT
         refSegments = Arrays.asList(new SimpleInterval("chr20:34732145-34733303"), new SimpleInterval("chr20:34733303-34733342"), new SimpleInterval("chr20:34733342-34733344"));
         altArrangements = Arrays.asList("-3","-2","UINS-14","3"); // segment 1 deleted, segment 2 appear inverted but length too short
         complex = makeTestComplexVariant(affectedInterval, svLen, refAllele, altSeq, ctgNames, refSegments, altArrangements);
-        expectedSimple = Collections.singletonList(makeDeletion(new SimpleInterval("chr20:34732145-34733302"), Allele.create("A", true)).attribute(CPX_EVENT_KEY, "CPX_chr20:34732145-34733344").attribute(CONTIG_NAMES, ctgNames).make());
+        expectedSimple = Collections.singletonList(makeDeletion(new SimpleInterval("chr20:34732145-34733302"), Allele.create("A", true))
+                .attribute(CPX_EVENT_KEY, "CPX_chr20:34732145-34733344").attribute(CONTIG_NAMES, ctgNames)
+                .attribute(MAX_ALIGN_LENGTH, complex.getAttributeAsInt(MAX_ALIGN_LENGTH, 0))
+                .attribute(MAPPING_QUALITIES, complex.getAttributeAsString(MAPPING_QUALITIES, "")).make());
         data.add(new Object[]{complex, b38_reference_chr20_chr21, multiSegmentsCpxVariantExtractor, expectedSimple});
 
         // case 2.3: no as-is but with inverted, and inverted sequence long enough
@@ -210,7 +259,10 @@ public class SegmentedCpxVariantSimpleVariantExtractorUnitTest extends GATKBaseT
         refSegments = Arrays.asList(new SimpleInterval("chr21:26001844-26002384"), new SimpleInterval("chr21:26002384-26002386"));
         altArrangements = Arrays.asList("-1");
         complex = makeTestComplexVariant(affectedInterval, svLen, refAllele, altSeq, ctgNames, refSegments, altArrangements);
-        expectedSimple = Collections.singletonList(makeInversion(new SimpleInterval("chr21:26001844-26002384"), Allele.create("T", true)).attribute(CPX_EVENT_KEY, "CPX_chr21:26001843-26002386").attribute(CONTIG_NAMES, ctgNames).make());
+        expectedSimple = Collections.singletonList(makeInversion(new SimpleInterval("chr21:26001844-26002384"), Allele.create("T", true))
+                .attribute(CPX_EVENT_KEY, "CPX_chr21:26001843-26002386").attribute(CONTIG_NAMES, ctgNames)
+                .attribute(MAX_ALIGN_LENGTH, complex.getAttributeAsInt(MAX_ALIGN_LENGTH, 0))
+                .attribute(MAPPING_QUALITIES, complex.getAttributeAsString(MAPPING_QUALITIES, "")).make());
         data.add(new Object[]{complex, b38_reference_chr20_chr21, multiSegmentsCpxVariantExtractor, expectedSimple});
 
         // case 3: possibly deletion
@@ -225,7 +277,10 @@ public class SegmentedCpxVariantSimpleVariantExtractorUnitTest extends GATKBaseT
         refSegments = Arrays.asList(new SimpleInterval("chr21:23428920-23428968"), new SimpleInterval("chr21:23428968-23428998"), new SimpleInterval("chr21:23428998-23429023"));
         altArrangements = Arrays.asList("UINS-84","2","3","UINS-5","2","2","3");
         complex = makeTestComplexVariant(affectedInterval, svLen, refAllele, altSeq, ctgNames, refSegments, altArrangements);
-        expectedSimple = Collections.singletonList(makeInsertion("chr21", 23428920, 23428920, 85, Allele.create("T", true)).attribute(CPX_EVENT_KEY, "CPX_chr21:23428920-23429023").attribute(CONTIG_NAMES, ctgNames).make());
+        expectedSimple = Collections.singletonList(makeInsertion("chr21", 23428920, 23428920, 85, Allele.create("T", true))
+                .attribute(CPX_EVENT_KEY, "CPX_chr21:23428920-23429023").attribute(CONTIG_NAMES, ctgNames)
+                .attribute(MAX_ALIGN_LENGTH, complex.getAttributeAsInt(MAX_ALIGN_LENGTH, 0))
+                .attribute(MAPPING_QUALITIES, complex.getAttributeAsString(MAPPING_QUALITIES, "")).make());
         data.add(new Object[]{complex, b38_reference_chr20_chr21, multiSegmentsCpxVariantExtractor, expectedSimple});
 
         // case 3.2: deleted range long enough (tested together with 2.1)
@@ -241,7 +296,10 @@ public class SegmentedCpxVariantSimpleVariantExtractorUnitTest extends GATKBaseT
         refSegments = Arrays.asList(new SimpleInterval("chr20:13062977-13063037"), new SimpleInterval("chr20:13063037-13063272"), new SimpleInterval("chr20:13063272-13063278"));
         altArrangements = Arrays.asList("1","-2","-1","UINS-14");
         complex = makeTestComplexVariant(affectedInterval, svLen, refAllele, altSeq, ctgNames, refSegments, altArrangements);
-        expectedSimple = Arrays.asList(makeInversion(new SimpleInterval("chr20:13063037-13063272"), Allele.create("G", true)).attribute(CPX_EVENT_KEY, "CPX_chr20:13062977-13063278").attribute(CONTIG_NAMES, ctgNames).make());
+        expectedSimple = Arrays.asList(makeInversion(new SimpleInterval("chr20:13063037-13063272"), Allele.create("G", true))
+                .attribute(CPX_EVENT_KEY, "CPX_chr20:13062977-13063278").attribute(CONTIG_NAMES, ctgNames)
+                .attribute(MAX_ALIGN_LENGTH, complex.getAttributeAsInt(MAX_ALIGN_LENGTH, 0))
+                .attribute(MAPPING_QUALITIES, complex.getAttributeAsString(MAPPING_QUALITIES, "")).make());
         data.add(new Object[]{complex, b38_reference_chr20_chr21, multiSegmentsCpxVariantExtractor, expectedSimple});
 
         // case 4.2: front insertion only (tested together with 3.1)
@@ -255,7 +313,10 @@ public class SegmentedCpxVariantSimpleVariantExtractorUnitTest extends GATKBaseT
         refSegments = Arrays.asList(new SimpleInterval("chr21:36680290-36680331"), new SimpleInterval("chr21:36680331-36680659"), new SimpleInterval("chr21:36680659-36680686"));
         altArrangements = Arrays.asList("1","2","1","UINS-249");
         complex = makeTestComplexVariant(affectedInterval, svLen, refAllele, altSeq, ctgNames, refSegments, altArrangements);
-        expectedSimple = Arrays.asList(makeInsertion("chr21", 36680686, 36680686, 250, Allele.create("A", true)).attribute(CPX_EVENT_KEY, "CPX_chr21:36680290-36680686").attribute(CONTIG_NAMES, ctgNames).make());
+        expectedSimple = Arrays.asList(makeInsertion("chr21", 36680686, 36680686, 250, Allele.create("A", true))
+                .attribute(CPX_EVENT_KEY, "CPX_chr21:36680290-36680686").attribute(CONTIG_NAMES, ctgNames)
+                .attribute(MAX_ALIGN_LENGTH, complex.getAttributeAsInt(MAX_ALIGN_LENGTH, 0))
+                .attribute(MAPPING_QUALITIES, complex.getAttributeAsString(MAPPING_QUALITIES, "")).make());
         data.add(new Object[]{complex, b38_reference_chr20_chr21, multiSegmentsCpxVariantExtractor, expectedSimple});
 
         // case 4.4: front and rear insertion (coordinate and allele massage, original event CPX_chr19:8888822-8895655)
@@ -267,10 +328,10 @@ public class SegmentedCpxVariantSimpleVariantExtractorUnitTest extends GATKBaseT
         refSegments = Arrays.asList(new SimpleInterval("chr20:8888822-8895288"), new SimpleInterval("chr20:8895288-8895361"), new SimpleInterval("chr20:8895361-8895655"));
         altArrangements = Arrays.asList("UINS-297","2","UINS-280");
         complex = makeTestComplexVariant(affectedInterval, svLen, refAllele, altSeq, ctgNames, refSegments, altArrangements);
-        expectedSimple = Arrays.asList(makeDeletion(new SimpleInterval("chr20:8888822-8895287"), Allele.create("G", true)).attribute(CPX_EVENT_KEY, "CPX_chr20:8888822-8895655").attribute(CONTIG_NAMES, ctgNames).make(),
-                                       makeDeletion(new SimpleInterval("chr20:8895361-8895654"), Allele.create("T", true)).attribute(CPX_EVENT_KEY, "CPX_chr20:8888822-8895655").attribute(CONTIG_NAMES, ctgNames).make(),
-                                       makeInsertion("chr20", 8888822, 8888822, 298, Allele.create("G", true)).attribute(CPX_EVENT_KEY, "CPX_chr20:8888822-8895655").attribute(CONTIG_NAMES, ctgNames).make(),
-                                       makeInsertion("chr20", 8895655, 8895655, 281, Allele.create("C", true)).attribute(CPX_EVENT_KEY, "CPX_chr20:8888822-8895655").attribute(CONTIG_NAMES, ctgNames).make());
+        expectedSimple = Arrays.asList(makeDeletion(new SimpleInterval("chr20:8888822-8895287"), Allele.create("G", true)).attribute(CPX_EVENT_KEY, "CPX_chr20:8888822-8895655").attribute(CONTIG_NAMES, ctgNames).attribute(MAX_ALIGN_LENGTH, complex.getAttributeAsInt(MAX_ALIGN_LENGTH, 0)).attribute(MAPPING_QUALITIES, complex.getAttributeAsString(MAPPING_QUALITIES, "")).make(),
+                                       makeDeletion(new SimpleInterval("chr20:8895361-8895654"), Allele.create("T", true)).attribute(CPX_EVENT_KEY, "CPX_chr20:8888822-8895655").attribute(CONTIG_NAMES, ctgNames).attribute(MAX_ALIGN_LENGTH, complex.getAttributeAsInt(MAX_ALIGN_LENGTH, 0)).attribute(MAPPING_QUALITIES, complex.getAttributeAsString(MAPPING_QUALITIES, "")).make(),
+                                       makeInsertion("chr20", 8888822, 8888822, 298, Allele.create("G", true)).attribute(CPX_EVENT_KEY, "CPX_chr20:8888822-8895655").attribute(CONTIG_NAMES, ctgNames).attribute(MAX_ALIGN_LENGTH, complex.getAttributeAsInt(MAX_ALIGN_LENGTH, 0)).attribute(MAPPING_QUALITIES, complex.getAttributeAsString(MAPPING_QUALITIES, "")).make(),
+                                       makeInsertion("chr20", 8895655, 8895655, 281, Allele.create("C", true)).attribute(CPX_EVENT_KEY, "CPX_chr20:8888822-8895655").attribute(CONTIG_NAMES, ctgNames).attribute(MAX_ALIGN_LENGTH, complex.getAttributeAsInt(MAX_ALIGN_LENGTH, 0)).attribute(MAPPING_QUALITIES, complex.getAttributeAsString(MAPPING_QUALITIES, "")).make());
         data.add(new Object[]{complex, b38_reference_chr20_chr21, multiSegmentsCpxVariantExtractor, expectedSimple});
 
         return data;
@@ -706,10 +767,16 @@ public class SegmentedCpxVariantSimpleVariantExtractorUnitTest extends GATKBaseT
 
     //==================================================================================================================
 
-    private static VariantContext makeTestComplexVariant(final SimpleInterval affectedRefRegion, final int svLen,
-                                                         final String referenceBases, final String altSeqBases,
-                                                         final List<String> contigNames,
-                                                         final List<SimpleInterval> referenceSegments, final List<String> altArrangement) {
+    private VariantContext makeTestComplexVariant(final SimpleInterval affectedRefRegion, final int svLen,
+                                                  final String referenceBases, final String altSeqBases,
+                                                  final List<String> contigNames,
+                                                  final List<SimpleInterval> referenceSegments, final List<String> altArrangement) {
+        final int maxAlignmentLength = random.nextInt(4000) + 1;
+        int evidenceContigCount = contigNames.size();
+        StringBuilder mqs = new StringBuilder();
+        for (int i = 0; i <= evidenceContigCount; ++i) mqs.append(random.nextInt(61)).append(",");
+        String mq = mqs.toString();
+
         final VariantContextBuilder builder = new VariantContextBuilder()
                 .chr(affectedRefRegion.getContig()).start(affectedRefRegion.getStart()).stop(affectedRefRegion.getEnd())
                 .alleles(Arrays.asList(Allele.create(referenceBases, true),
@@ -720,7 +787,9 @@ public class SegmentedCpxVariantSimpleVariantExtractorUnitTest extends GATKBaseT
                 .attribute(SVTYPE, CPX_SV_SYB_ALT_ALLELE_STR)
                 .attribute(CPX_EVENT_ALT_ARRANGEMENTS, String.join(VCFConstants.INFO_FIELD_ARRAY_SEPARATOR, altArrangement))
                 .attribute(CONTIG_NAMES, String.join(VCFConstants.INFO_FIELD_ARRAY_SEPARATOR, contigNames))
-                .attribute(SEQ_ALT_HAPLOTYPE, altSeqBases);
+                .attribute(SEQ_ALT_HAPLOTYPE, altSeqBases)
+                .attribute(MAX_ALIGN_LENGTH, maxAlignmentLength)
+                .attribute(MAPPING_QUALITIES, mq.substring(0, mq.length() - 1)); // drop last coma
         if (referenceSegments.isEmpty())
             return builder.make();
         else

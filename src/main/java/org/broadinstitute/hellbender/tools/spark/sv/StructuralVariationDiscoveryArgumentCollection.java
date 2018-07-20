@@ -237,6 +237,7 @@ public class StructuralVariationDiscoveryArgumentCollection implements Serializa
 
         public static final int GAPPED_ALIGNMENT_BREAK_DEFAULT_SENSITIVITY = STRUCTURAL_VARIANT_SIZE_LOWER_BOUND; // alignment with gap of size >= 50 will be broken apart.
         public static final int CHIMERIC_ALIGNMENTS_HIGHMQ_THRESHOLD = 60;
+        public static final int ASSEMBLY_ALIGNMENT_MQ_FILTER_DEFAULT = 30;
         public static final int DEFAULT_MIN_ALIGNMENT_LENGTH = 50; // Minimum flanking alignment length filters used when going through contig alignments.
         public static final int DEFAULT_ASSEMBLED_IMPRECISE_EVIDENCE_OVERLAP_UNCERTAINTY = 100;
         public static final int DEFAULT_IMPRECISE_VARIANT_EVIDENCE_THRESHOLD = 7;
@@ -245,6 +246,9 @@ public class StructuralVariationDiscoveryArgumentCollection implements Serializa
 
         @Argument(doc = "Minimum flanking alignment length", fullName = "min-align-length")
         public Integer minAlignLength = DEFAULT_MIN_ALIGNMENT_LENGTH;
+
+        @Argument(doc = "Minimum mapping quality of evidence assembly contig", shortName = "mq", fullName = "min-mq")
+        public Integer minMQ = ASSEMBLY_ALIGNMENT_MQ_FILTER_DEFAULT;
 
         @Hidden
         @Argument(doc = "VCF containing the true breakpoints used only for evaluation (not generation) of calls",

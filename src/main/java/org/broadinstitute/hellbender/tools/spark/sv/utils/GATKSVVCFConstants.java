@@ -84,6 +84,8 @@ public final class GATKSVVCFConstants {
     public static final String COPY_NUMBER_QUALITY_FORMAT = "CNQ";
 
     // filter block
+    public static final String ASSEMBLY_BASED_VARIANT_MQ_FILTER_KEY = "LOW_MQ";
+    public static final String ASSEMBLY_BASED_VARIANT_ALN_LENGTH_FILTER_KEY = "SHORT_ALN";
 
     ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -103,7 +105,7 @@ public final class GATKSVVCFConstants {
             = Stream.of("CN", "CNQ");
 
     public static final Stream<String> expectedFilterHeaderKeysInVCF
-            = Stream.empty(); // TODO: 7/3/18 add we have more;
+            = Stream.of("LOW_MQ", "SHORT_ALN");
 
     public static final List<String> expectedHeaderKeysInVCF
             = Stream.of(expectedAltAlleleHeaderKeysInVCF, expectedInfoHeaderKeysInVCF, expectedFormatHeaderKeysInVCF,

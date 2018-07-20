@@ -74,7 +74,7 @@ public class SVVCFWriterUnitTest extends GATKBaseTest {
                 b37_2bit_reference_20_21 , ReferenceWindowFunctions.IDENTITY_FUNCTION).getReferenceSequenceDictionary(null);
         final VCFHeader vcfHeader = SVVCFWriter.getVcfHeader(referenceSequenceDictionary);
         Assert.assertNotNull(vcfHeader.getSequenceDictionary());
-        Assert.assertTrue(vcfHeader.getFilterLines().isEmpty());
+
         final List<String> refContigs = vcfHeader.getContigLines().stream().map(VCFContigHeaderLine::getID).collect(Collectors.toList());
         Assert.assertTrue(refContigs.size()==2);
 
