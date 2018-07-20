@@ -81,8 +81,7 @@ GATK_SV_TOOL=${GATK_SV_TOOL:-"StructuralVariationDiscoveryPipelineSpark"}
 COPY_FASTQ=${COPY_FASTQ:-"Y"}
 SV_UPDATE_GCLOUD=${SV_UPDATE_GCLOUD:-true}
 
-# update gcloud
-{
+function updage_gcloud() {
     if [ $SV_UPDATE_GCLOUD = true ]; then
         if [[ "${QUIET}" == "Y" ]]; then
             gcloud components update --quiet
@@ -90,11 +89,10 @@ SV_UPDATE_GCLOUD=${SV_UPDATE_GCLOUD:-true}
             gcloud components update
         fi
     fi
-} || {
-    # catch error and continue. This can happen if a package manager is
-    # maintaining gcloud
-    :
 }
+# try to update gcloud, on error ignore and continue. This can happen if
+# a package manager is maintaining gcloud
+update_gcloud || true
 
 while [ $# -ge 1 ]; do
     case $1 in
