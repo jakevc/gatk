@@ -34,7 +34,7 @@ public final class XGBoostEvidenceFilter implements Iterator<BreakpointEvidence>
     private static final boolean USE_FAST_MATH_EXP = true;
     // toggleable implementation decision that may need to be revisited. This is bad software design but only needs to
     // persist in the short term while I actively tweak these variables as I test classifier design.
-    // To-do: enough experimentation to finalize design and remove these variables and unused code paths.
+    // ### TO-DO: ### finalize design and remove these variables and unused code paths. Issue 5041
     // - merge templateSize and readCounts columns to avoid NaNs?
     private static final boolean MERGE_TEMPLATE_SIZE_AND_READ_COUNTS = true;
     // - merge overlapping genome gaps when calculating overlap with BreakpointEvidence?
@@ -212,6 +212,11 @@ public final class XGBoostEvidenceFilter implements Iterator<BreakpointEvidence>
                 : getGenomeIntervalsOverlap(evidence, umapS100Mappability, readMetadata, MERGE_OVERLAPPING_GENOME_MAPPABILITY_KMERS);
 
         // either templateSize is defined (for ReadEvidence) or readCount (for TemplateSizeAnomaly).
+        /**
+         * #### TO-DO: #### remove boolean toggle to switch code paths, and remove unused code path. Issue 5041
+         * Classifier feature design is not complete, and it is still uncertain if there is performance cost for leaving
+         * templateSize and readCounts unmerged (so that one of them is always NaN).
+         */
         if(MERGE_TEMPLATE_SIZE_AND_READ_COUNTS) {
             final double templateSizeOrReadCount = getTemplateSizeOrReadCount(evidence);
             return new EvidenceFeatures(
@@ -445,11 +450,14 @@ public final class XGBoostEvidenceFilter implements Iterator<BreakpointEvidence>
 
     /**
      * Calculate fractional overlap of BreakpointEvidence with genome tract data.
-     * @param evidence
-     * @param genomeIntervals
-     * @param readMetadata
-     * @param mergeOverlappingGenomeIntervals
-     * @return
+     * ##### TO-DO: ##### remove boolean toggle for two different code paths, and remove unused code path. Issue 5041
+     * if mergeOverlappingGenomeIntervals is true:
+     *     merge any genomeIntervals that overlap each other. returns the fraction of base pairs in evidence that
+     *     overlap one of the genomeIntervals. returned value will be double between 0 and 1 (inclusive)
+     * if mergeOverlappingGenomeIntervals is false:
+     *     separately sum the number of base pairs in genomeIntervals that overlap evidence (allowing base pairs to
+     *     count multiple times if there is overlap in genomeIntervals) then divide by length of evidence. returned
+     *     value will be double >= 0, but may be larger than 1 if any genomeIntervals overlap each other.
      */
     private static double getGenomeIntervalsOverlap(final BreakpointEvidence evidence,
                                                     final FeatureDataSource<BEDFeature> genomeIntervals,
