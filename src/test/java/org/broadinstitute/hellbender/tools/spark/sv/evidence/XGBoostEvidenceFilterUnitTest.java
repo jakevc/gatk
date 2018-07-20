@@ -173,24 +173,40 @@ public class XGBoostEvidenceFilterUnitTest extends GATKBaseTest {
 
     @Test(groups = "sv")
     protected void testFilter() {
-        final XGBoostEvidenceFilter evidenceFilter0 = new XGBoostEvidenceFilter(
-                evidenceList.iterator(), readMetadata, params, emptyCrossingChecker
-        );
         final XGBoostEvidenceFilter evidenceFilter = new XGBoostEvidenceFilter(
                 evidenceList.iterator(), readMetadata, params, emptyCrossingChecker
         );
 
         // construct list of BreakpointEvidence that is expected to pass the filter
         final List<BreakpointEvidence> expectedPassed = new ArrayList<>();
+        List<BreakpointEvidence> sameLocationEvidence = new ArrayList<>();
+        boolean locationPassed = false;
+        SVInterval previous = null;
         for(final BreakpointEvidence evidence : evidenceList) {
             // Use the classifier to calculate probability, to ensure that minor fluctuations that happen to cross the
             // decision threshold don't cause test failure. Here we only test if the filtering mechanism works correctly.
             // Accuracy of probability calculation is tested in testFeatureConstruction.
-            final double probability = evidenceFilter0.predictProbability(evidence);
-            if(probability > params.svEvidenceFilterThresholdProbability) {
+            final double probability = evidenceFilter.predictProbability(evidence);
+            final boolean matchesPrevious = evidence.getLocation().equals(previous);
+            locationPassed = matchesPrevious ?
+                    locationPassed || probability > params.svEvidenceFilterThresholdProbability
+                    : probability > params.svEvidenceFilterThresholdProbability;
+            if(locationPassed) {
+                if(matchesPrevious) {
+                    expectedPassed.addAll(sameLocationEvidence);
+                } else {
+                    previous = evidence.getLocation();
+                }
+                sameLocationEvidence.clear();
                 expectedPassed.add(evidence);
+            } else if(matchesPrevious) {
+                sameLocationEvidence.add(evidence);
+            } else {
+                sameLocationEvidence.clear();
+                previous = evidence.getLocation();
             }
         }
+        sameLocationEvidence.clear();
 
         // use evidenceFilter to populate array with passed evidence
         final List<BreakpointEvidence> passedEvidence = new ArrayList<>();
