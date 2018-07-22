@@ -10,6 +10,7 @@ import org.apache.spark.api.java.JavaPairRDD;
 import org.apache.spark.api.java.JavaRDD;
 import org.broadinstitute.hellbender.exceptions.GATKException;
 import org.broadinstitute.hellbender.tools.spark.sv.discovery.SvDiscoverFromLocalAssemblyContigAlignmentsSpark;
+import org.broadinstitute.hellbender.tools.spark.sv.utils.SVInterval;
 import org.broadinstitute.hellbender.tools.spark.sv.utils.SVUtils;
 import org.broadinstitute.hellbender.tools.spark.sv.utils.SvCigarUtils;
 import org.broadinstitute.hellbender.utils.Utils;
@@ -647,7 +648,8 @@ public class AssemblyContigAlignmentsConfigPicker {
      *  2) drop the gap-split child alignments whose read spans are contained in other alignment spans
      * TODO: based on evaluation done on 2018-06-30, making either choice has small effect on the final call set; one could further evaluate options when making improvements.
      */
-    private static GoodAndBadMappings splitGaps(final GoodAndBadMappings configuration, final boolean keepSplitChildrenTogether) {
+    @VisibleForTesting
+    static GoodAndBadMappings splitGaps(final GoodAndBadMappings configuration, final boolean keepSplitChildrenTogether) {
         return keepSplitChildrenTogether ? splitGapsAndKeepChildrenTogether(configuration) : splitGapsAndDropAlignmentContainedByOtherOnRead(configuration);
     }
 
@@ -708,6 +710,7 @@ public class AssemblyContigAlignmentsConfigPicker {
                 bad.addAll( Lists.newArrayList(pair._2) );
             }
         }
+        good.sort(AlignedContig.getAlignmentIntervalComparator());
         return new GoodAndBadMappings(good, bad, configuration.goodMappingToNonCanonicalChromosome);
     }
 
@@ -742,6 +745,7 @@ public class AssemblyContigAlignmentsConfigPicker {
             }
         }
         gapSplit.removeAll(bad);
+        gapSplit.sort(AlignedContig.getAlignmentIntervalComparator());
         return new GoodAndBadMappings(gapSplit, bad, configuration.goodMappingToNonCanonicalChromosome);
     }
 
@@ -825,24 +829,13 @@ public class AssemblyContigAlignmentsConfigPicker {
         //      subtract the overlap from the distance covered on the contig by the alignment.
         //      This gives unique read region it explains.
         //      If this unique read region is "short": shorter than {@code uniqReadLenInclusive}), drop it.
-
-        // each alignment has an entry of a tuple2, one for max overlap maxFront, one for max overlap maxRear,
-        // max overlap maxFront is a tuple2 registering the index and overlap bases count
-        final Map<AlignmentInterval, Tuple2<Integer, Integer>> maxOverlapMap = getMaxOverlapPairs(selectedAlignments);
+        final Map<AlignmentInterval, SVInterval> maxOverlapMap = getMaxOverlapPairs(selectedAlignments);
         for(Iterator<AlignmentInterval> iterator = selectedAlignments.iterator(); iterator.hasNext();) {
             final AlignmentInterval alignment = iterator.next();
 
-            final Tuple2<Integer, Integer> maxOverlapFrontAndRear = maxOverlapMap.get(alignment);
-            final int maxOverlapFront = Math.max(0, maxOverlapFrontAndRear._1);
-            final int maxOverlapRear = Math.max(0, maxOverlapFrontAndRear._2);
+            final SVInterval uniqReadSpan = maxOverlapMap.get(alignment);
 
-            // theoretically this could be negative for an alignment whose maxFront and maxRear sums together bigger than the read span
-            // but earlier configuration scoring would make this impossible because such alignments should be filtered out already
-            // considering that it brings more penalty than value, i.e. read bases explained (even if the MQ is 60),
-            // but even if it is kept, a negative value won't hurt unless a stupid threshold value is passed in
-            final int uniqReadSpan = alignment.endInAssembledContig - alignment.startInAssembledContig + 1
-                    - maxOverlapFront - maxOverlapRear;
-            if (uniqReadSpan < uniqReadLenInclusive) {
+            if (uniqReadSpan == null || uniqReadSpan.getLength() < uniqReadLenInclusive) {
                 lowUniquenessMappings.add(alignment);
                 iterator.remove();
             }
@@ -870,11 +863,14 @@ public class AssemblyContigAlignmentsConfigPicker {
         }
     }
 
+    @VisibleForTesting
+    static final int TEMPORARY_SELF_POINTING_SV_INTERVAL_CONTIG = 0;
     /**
      * Extract the max overlap information, front and back, for each alignment in {@code configuration}.
-     * For each alignment, the corresponding tuple2 has the max (front, rear) overlap base counts.
+     * For each alignment, the corresponding value is the unique read span by taking away the maximum overlaps.
      */
-    private static Map<AlignmentInterval, Tuple2<Integer, Integer>> getMaxOverlapPairs(final List<AlignmentInterval> configuration) {
+    @VisibleForTesting
+    static Map<AlignmentInterval, SVInterval> getMaxOverlapPairs(final List<AlignmentInterval> configuration) {
 
         final List<TempMaxOverlapInfo> intermediateResult =
                 new ArrayList<>(Collections.nCopies(configuration.size(), new TempMaxOverlapInfo()));
@@ -913,10 +909,13 @@ public class AssemblyContigAlignmentsConfigPicker {
             }
         }
 
-        final Map<AlignmentInterval, Tuple2<Integer, Integer>> maxOverlapMap = new HashMap<>(configuration.size());
+        final Map<AlignmentInterval, SVInterval> maxOverlapMap = new HashMap<>(configuration.size());
         for (int i = 0; i < configuration.size(); ++i) {
-            maxOverlapMap.put(configuration.get(i),
-                    new Tuple2<>(intermediateResult.get(i).maxFront._2, intermediateResult.get(i).maxRear._2));
+            final AlignmentInterval alignment = configuration.get(i);
+            int uniqueStart = alignment.startInAssembledContig + Math.max(0, intermediateResult.get(i).maxFront._2) - 1;// "-1" because we are going from 1-based to 0-based
+            int uniqueEnd = alignment.endInAssembledContig - Math.max(0, intermediateResult.get(i).maxRear._2);
+            final SVInterval uniqReadSpan = uniqueStart >= uniqueEnd ? null : new SVInterval(TEMPORARY_SELF_POINTING_SV_INTERVAL_CONTIG, uniqueStart,  uniqueEnd);
+            maxOverlapMap.put(configuration.get(i), uniqReadSpan);
         }
 
         return maxOverlapMap;
