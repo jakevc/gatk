@@ -571,13 +571,30 @@ public class AssemblyContigAlignmentsConfigPicker {
             return bestConfigurations.stream()
                     .map(mappings -> splitGaps(mappings, false))
                     .map(mappings -> removeNonUniqueMappings(mappings, ALIGNMENT_MQ_THRESHOLD, ALIGNMENT_LOW_READ_UNIQUENESS_THRESHOLD))
+                    .filter(mappings ->  {
+                        if (mappings.goodMappings.size() != 2)
+                            return true;
+                        else {
+
+                            if ( simpleChimeraWithStichableAlignments(mappings.goodMappings.get(0), mappings.goodMappings.get(1)) )
+                                return false;
+                            else
+                                return true;
+                        }
+                    })
                     .map(mappings -> createContigGivenClassifiedAlignments(contigName, contigSeq, mappings, true))
                     .sorted(getConfigurationComparator())
                     .iterator();
         } else {
             final GoodAndBadMappings intermediate = splitGaps(bestConfigurations.get(0), false);
             final GoodAndBadMappings result = removeNonUniqueMappings(intermediate, ALIGNMENT_MQ_THRESHOLD, ALIGNMENT_LOW_READ_UNIQUENESS_THRESHOLD);
-            return Collections.singletonList(createContigGivenClassifiedAlignments(contigName, contigSeq, result, false)).iterator();
+            if (result.goodMappings.size() != 2
+                    ||
+                    ! simpleChimeraWithStichableAlignments(result.goodMappings.get(0), result.goodMappings.get(1)))
+                return Collections.singletonList(createContigGivenClassifiedAlignments(contigName, contigSeq, result, false)).iterator();
+            else {
+                return Collections.emptyIterator();
+            }
         }
     }
 
@@ -903,5 +920,37 @@ public class AssemblyContigAlignmentsConfigPicker {
         }
 
         return maxOverlapMap;
+    }
+
+    /**
+     * See the funny alignment signature described in ticket 4951 on GATK github
+     * @param intervalOne assumed to start no later   than {@code intervalTwo} on the read
+     * @param intervalTwo assumed to start no earlier than {@code intervalOne} on the read
+     * @return if the two given intervals can be stitched together
+     * @throws IllegalArgumentException if the two intervals are not sorted according to their {@link AlignmentInterval#startInAssembledContig}
+     */
+    public static boolean simpleChimeraWithStichableAlignments(final AlignmentInterval intervalOne, final AlignmentInterval intervalTwo) {
+        if ( intervalOne.startInAssembledContig > intervalTwo.startInAssembledContig )
+            throw new IllegalArgumentException("Assumption that input intervals are sorted by their starts on read is violated.\tFirst: " +
+                    intervalOne.toPackedString() + "\tSecond: " + intervalTwo.toPackedString());
+        if ( ! intervalOne.referenceSpan.getContig().equals(intervalTwo.referenceSpan.getContig()))
+            return false;
+        if (intervalOne.forwardStrand != intervalTwo.forwardStrand)
+            return false;
+        if ( intervalOne.containsOnRead(intervalTwo) || intervalTwo.containsOnRead(intervalOne) )
+            return false;
+        if ( intervalOne.containsOnRef(intervalTwo) || intervalTwo.containsOnRef(intervalOne) )
+            return false;
+        final boolean refOrderSwap = intervalOne.forwardStrand != (intervalOne.referenceSpan.getStart() < intervalTwo.referenceSpan.getStart());
+        if (refOrderSwap)
+            return false;
+        final int overlapOnContig = AlignmentInterval.overlapOnContig(intervalOne, intervalTwo);
+        final int overlapOnRefSpan = AlignmentInterval.overlapOnRefSpan(intervalOne, intervalTwo);
+        if (overlapOnContig == 0 && overlapOnRefSpan == 0) {
+            final boolean canBeStitched = intervalTwo.referenceSpan.getStart() - intervalOne.referenceSpan.getEnd() == 1
+                    && intervalTwo.startInAssembledContig - intervalOne.endInAssembledContig == 1 ;
+            return canBeStitched;
+        } else
+            return overlapOnContig == overlapOnRefSpan;
     }
 }

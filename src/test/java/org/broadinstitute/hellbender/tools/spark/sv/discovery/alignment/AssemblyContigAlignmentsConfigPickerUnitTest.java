@@ -471,4 +471,50 @@ public class AssemblyContigAlignmentsConfigPickerUnitTest extends GATKBaseTest {
         tobeSorted.sort(getConfigurationComparator());
         Assert.assertEquals(tobeSorted, expectedRepresentationsInOrder);
     }
+
+    @DataProvider Object[][] forSimpleChimeraWithStichableAlignments() {
+        final List<Object[]> data = new ArrayList<>(20);
+
+        AlignmentInterval zero = fromSAMRecordString("asm019085:tig00005\t2064\tchr8\t38525855\t0\t525H36M7D70M\t*\t0\t0\tCCTTCCCTTCCCTTCCCCTTCCTTCCTTTCTTCCTTCCTTCCCTTCCCTTCCCCTTCCTTCCTTCCTTCCTTCCTTCCTTCCTTCCTTCCTTCCTTCCTTCCTTCC\t*\tSA:Z:chr20,43927117,-,374M257S,60,3;chr20,43927479,-,342S74M7D69M146S,60,8;chr20,43927560,-,416S51M15D58M5I37M64S,60,20;\tMD:Z:28C7^TCCCTTC70\tRG:Z:GATKSVContigAlignments\tNM:i:8\tAS:i:78\tXS:i:75", true);
+        AlignmentInterval one = fromSAMRecordString("asm019085:tig00005\t2064\tchr20\t43927560\t60\t416H51M15D58M5I37M64H\t*\t0\t0\tTCTTGGCTTTGCCACCTATGAAGAGTTAATTTCCTTCCTTCCTTCCTTCCTTCCTTCCTTCCTTCCTCCCCTTCCCTTCCCTTCCCCTTCCTTCCTTCCTTTCTTCCTTCCTTCCCTTCCCTTCCCCTTCCTTCCTTTCTTCCTTCCTTCC\t*\tSA:Z:chr20,43927117,-,374M257S,60,3;chr20,43927479,-,342S74M7D69M146S,60,8;chr8,38525855,-,525S36M7D70M,0,8;\tMD:Z:51^TCCTTCCTTCCTTCC95\tRG:Z:GATKSVContigAlignments\tNM:i:20\tAS:i:94\tXS:i:46", true);
+        AlignmentInterval two = fromSAMRecordString("asm019085:tig00005\t2064\tchr20\t43927479\t60\t342H74M7D69M146H\t*\t0\t0\tACACACACACACACACACACACACACACACACGTCATGAGATATGCTTTGGAGTCATACTGGCCTGGGATCAAATCTTGGCTTTGCCACCTATGAAGAGTTAATTTCCTTCCTTCCTTCCTTCCTTCCTTCCTTCCTTCCTCC\t*\tSA:Z:chr20,43927117,-,374M257S,60,3;chr20,43927560,-,416S51M15D58M5I37M64S,60,20;chr8,38525855,-,525S36M7D70M,0,8;\tMD:Z:32A41^TCTTGGC69\tRG:Z:GATKSVContigAlignments\tNM:i:8\tAS:i:115\tXS:i:0", true);
+        AlignmentInterval three = fromSAMRecordString("asm019085:tig00005\t16\tchr20\t43927117\t60\t374M257S\t*\t0\t0\tCCAAATTATGGCTTCTTTTTCAGATATTTATAACTTATTTATAGTTCCTCCCAGTTCAAATGCAACTTACCAATCAGGGGTCATTTTTACCATAAGCAGAGTTGCCTGGTAACATAGTTAACGTCCCACTTTCCTCAGGTTTCCAGGGGAGTTATGCTCCGCAATTAACAAAGGTGAAATTCTCTTGCAACAAGGAAAAGGGTTTGGTTAACCCTTTCCCCCATATTCATCATCCTACTTTTTTCCCCTGTGGGCTGGTATTTTTGGCATCTCTTTTGGAAGGATGAATGGAGTCCTCAGTAATATATTCCACACTGTGTACATTTTCTGATGATCTATGTAACACACACACACACACACACACACACACACACGTCATGAGATATGCTTTGGAGTCATACTGGCCTGGGATCAAATCTTGGCTTTGCCACCTATGAAGAGTTAATTTCCTTCCTTCCTTCCTTCCTTCCTTCCTTCCTTCCTCCCCTTCCCTTCCCTTCCCCTTCCTTCCTTCCTTTCTTCCTTCCTTCCCTTCCCTTCCCCTTCCTTCCTTTCTTCCTTCCTTCCCTTCCCTTCCCCTTCCTTCCTTCCTTCCTTCCTTCCTTCCTTCCTTCCTTCCTTCCTTCCTTCC\t*\tSA:Z:chr20,43927479,-,342S74M7D69M146S,60,8;chr20,43927560,-,416S51M15D58M5I37M64S,60,20;chr8,38525855,-,525S36M7D70M,0,8;\tMD:Z:284C15A38A34\tRG:Z:GATKSVContigAlignments\tNM:i:3\tAS:i:359\tXS:i:0", true);
+        data.add(new Object[]{zero, one, false}); // different chr
+        data.add(new Object[]{one, three, false});
+        data.add(new Object[]{two, three, false});
+
+        data.add(new Object[]{new AlignmentInterval(new SimpleInterval("chr1:1-100"), 1, 100, TextCigarCodec.decode("100M50S"), true, 60, 0, 100, ContigAlignmentsModifier.AlnModType.NONE),
+                              new AlignmentInterval(new SimpleInterval("chr1:21-70"), 101, 150, TextCigarCodec.decode("100S50M"), true, 60, 0, 50, ContigAlignmentsModifier.AlnModType.NONE),
+                              false
+        }); // contains on ref
+        data.add(new Object[]{new AlignmentInterval(new SimpleInterval("chr1:1-100"), 1, 100, TextCigarCodec.decode("100M50S"), true, 60, 0, 100, ContigAlignmentsModifier.AlnModType.NONE),
+                              new AlignmentInterval(new SimpleInterval("chr1:101-150"), 51, 100, TextCigarCodec.decode("50S50M50S"), true, 60, 0, 50, ContigAlignmentsModifier.AlnModType.NONE),
+                              false
+        }); // contains on read
+
+        data.add(new Object[]{new AlignmentInterval(new SimpleInterval("chr1:1-100"), 1, 100, TextCigarCodec.decode("100M50S"), true, 60, 0, 100, ContigAlignmentsModifier.AlnModType.NONE),
+                              new AlignmentInterval(new SimpleInterval("chr1:101-150"), 101, 150, TextCigarCodec.decode("100S50M"), true, 60, 0, 50, ContigAlignmentsModifier.AlnModType.NONE),
+                              true
+        });
+        data.add(new Object[]{one, two, true});
+
+        // strand switch
+        data.add(new Object[]{new AlignmentInterval(new SimpleInterval("chr1:1001001-1001100"), 1, 100, TextCigarCodec.decode("100M1080S"), true, 60, 0, 100, ContigAlignmentsModifier.AlnModType.NONE),
+                              new AlignmentInterval(new SimpleInterval("chr1:1000001-1001100"), 81, 1180, TextCigarCodec.decode("1100M80S"), false, 60, 0, 1100, ContigAlignmentsModifier.AlnModType.NONE),
+                              false
+        });
+
+        return data.toArray(new Object[data.size()][]);
+    }
+    @Test(groups = "sv", dataProvider = "forSimpleChimeraWithStichableAlignments")
+    public void testSimpleChimeraWithStichableAlignments(final AlignmentInterval one, final AlignmentInterval two,
+                                                         final boolean expected) {
+        Assert.assertEquals(AssemblyContigAlignmentsConfigPicker.simpleChimeraWithStichableAlignments(one, two), expected);
+    }
+    @Test(groups = "sv", expectedExceptions = IllegalArgumentException.class)
+    public void testSimpleChimeraWithStichableAlignmentsUnsortedInputs() {
+        AlignmentInterval one = fromSAMRecordString("asm019085:tig00005\t2064\tchr20\t43927560\t60\t416H51M15D58M5I37M64H\t*\t0\t0\tTCTTGGCTTTGCCACCTATGAAGAGTTAATTTCCTTCCTTCCTTCCTTCCTTCCTTCCTTCCTTCCTCCCCTTCCCTTCCCTTCCCCTTCCTTCCTTCCTTTCTTCCTTCCTTCCCTTCCCTTCCCCTTCCTTCCTTTCTTCCTTCCTTCC\t*\tSA:Z:chr20,43927117,-,374M257S,60,3;chr20,43927479,-,342S74M7D69M146S,60,8;chr8,38525855,-,525S36M7D70M,0,8;\tMD:Z:51^TCCTTCCTTCCTTCC95\tRG:Z:GATKSVContigAlignments\tNM:i:20\tAS:i:94\tXS:i:46", true);
+        AlignmentInterval two = fromSAMRecordString("asm019085:tig00005\t2064\tchr20\t43927479\t60\t342H74M7D69M146H\t*\t0\t0\tACACACACACACACACACACACACACACACACGTCATGAGATATGCTTTGGAGTCATACTGGCCTGGGATCAAATCTTGGCTTTGCCACCTATGAAGAGTTAATTTCCTTCCTTCCTTCCTTCCTTCCTTCCTTCCTTCCTCC\t*\tSA:Z:chr20,43927117,-,374M257S,60,3;chr20,43927560,-,416S51M15D58M5I37M64S,60,20;chr8,38525855,-,525S36M7D70M,0,8;\tMD:Z:32A41^TCTTGGC69\tRG:Z:GATKSVContigAlignments\tNM:i:8\tAS:i:115\tXS:i:0", true);
+        AssemblyContigAlignmentsConfigPicker.simpleChimeraWithStichableAlignments(two, one);
+    }
 }
